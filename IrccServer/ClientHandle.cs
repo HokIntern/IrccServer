@@ -7,6 +7,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Ircc;
+using static Ircc.IrccHelper;
+using StackExchange.Redis;
 
 namespace IrccServer
 {
@@ -15,46 +17,89 @@ namespace IrccServer
         Socket so;
         int bytecount;
 
-
-        long uuid;
-        int status;
+        long userId;
+        State status;
+        bool isDummy;
         int roomId;
         int chattingCount;
 
-        const int HEADER_SIZE = 12;
+        private enum State
+        {
+            Lobby, Room, Error
+        }
 
         public ClientHandle(Socket s)
         {
             so = s;
-            Thread chThread = new Thread(echo);
+            Thread chThread = new Thread(start);
             chThread.Start();
+            //chThread.Abort();
         }
 
-        private void echo()
+        private void start()
         {
-            String remoteHost = ((IPEndPoint)so.RemoteEndPoint).Address.ToString();
-            String remotePort = ((IPEndPoint)so.RemoteEndPoint).Port.ToString();
+            string remoteHost = ((IPEndPoint)so.RemoteEndPoint).Address.ToString();
+            string remotePort = ((IPEndPoint)so.RemoteEndPoint).Port.ToString();
             Console.WriteLine("Connection established with {0}:{1}\n", remoteHost, remotePort);
 
             for (;;)
             {
-                /* Receive */
+                // Receive
                 Header recvdHeader;
                 Packet recvdRequest;
-                
-                /* get HEADER */
-                byte[] header = new byte[HEADER_SIZE];
-                bytecount = so.Receive(header);
-                recvdHeader = IrccHelper.bytesToHeader(header);
+
+                // get HEADER
+                byte[] headerBytes = getBytes(HEADER_SIZE);
+                if (null == headerBytes)
+                    break;
+                recvdHeader = bytesToHeader(headerBytes);
                 recvdRequest.header = recvdHeader;
 
-                /* get DATA */
-                byte[] data = new byte[recvdHeader.size];
-                bytecount = so.Receive(data);
-                recvdRequest.data = data;
+                // get DATA
+                byte[] dataBytes = getBytes(recvdHeader.size);
+                if (null == dataBytes)
+                    break;
+                recvdRequest.data = dataBytes;
 
+                //string configString = "10.100.58.5:26379,keepAlive=180";
+                string configString = System.IO.File.ReadAllText("redis.conf");
+                ConfigurationOptions configOptions = ConfigurationOptions.Parse(configString);
+                RedisHelper redis = new RedisHelper(configOptions);
+
+                //TODO: fix this shit
+                switch (recvdRequest.header.code)
+                {
+                    case Code.SIGNUP:
+                        byte[] usernameBytes = new byte[12];
+                        byte[] passwordBytes = new byte[18];
+                        Array.Copy(recvdRequest.data, 0, usernameBytes, 0, 12);
+                        Array.Copy(recvdRequest.data, 12, passwordBytes, 0, 18);
+
+                        string username = Encoding.UTF8.GetString(usernameBytes).Trim();
+                        string password = Encoding.UTF8.GetString(passwordBytes).Trim();
+
+                        userId = redis.CreateUser(username, password);
+                        break;
+                    case Code.SIGNIN:
+                        usernameBytes = new byte[12];
+                        passwordBytes = new byte[18];
+                        Array.Copy(recvdRequest.data, 0, usernameBytes, 0, 12);
+                        Array.Copy(recvdRequest.data, 0, passwordBytes, 0, 18);
+
+                        username = Encoding.UTF8.GetString(usernameBytes).Trim();
+                        password = Encoding.UTF8.GetString(passwordBytes).Trim();
+
+                        userId = redis.SignIn(username, password);
+                        Console.WriteLine(userId + "has signed in");
+                        break;
+                    default :
+                        break;
+                }
+
+                /* //DEBUG
                 Console.WriteLine("Received {0}bytes from {1}:{2}", bytecount, remoteHost, remotePort);
                 Console.WriteLine("COMM: {0}\nCODE: {1}\nSIZE: {2}\nRSVD: {3}\nDATA: {4}", recvdRequest.header.comm, recvdRequest.header.code, recvdRequest.header.size, recvdRequest.header.reserved, Encoding.UTF8.GetString(recvdRequest.data));
+                */
 
                 if (!isConnected())
                 {
@@ -74,6 +119,22 @@ namespace IrccServer
             so.Shutdown(SocketShutdown.Both);
             so.Close();
             Console.WriteLine("Connection closed\n");
+        }
+
+        private byte[] getBytes(int length)
+        {
+            byte[] bytes = new byte[length];
+            try
+            {
+                bytecount = so.Receive(bytes);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("\n" + e.Message);
+                return null;
+            }
+
+            return bytes;
         }
 
         private bool isConnected()
