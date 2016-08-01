@@ -18,25 +18,27 @@ namespace IrccServer
         int bytecount;
 
         long userId;
-        State status;
+        State state;
         bool isDummy;
         int roomId;
         int chattingCount;
 
-        private enum State
+        ReceiveHandler recvHandler;
+
+        public enum State
         {
             Lobby, Room, Error
         }
 
-        public ClientHandle(Socket s)
+        public ClientHandle(Socket s, RedisHelper redis)
         {
             so = s;
-            Thread chThread = new Thread(start);
+            Thread chThread = new Thread(() => start(redis));
             chThread.Start();
             //chThread.Abort();
         }
 
-        private void start()
+        private void start(RedisHelper redis)
         {
             string remoteHost = ((IPEndPoint)so.RemoteEndPoint).Address.ToString();
             string remotePort = ((IPEndPoint)so.RemoteEndPoint).Port.ToString();
@@ -52,7 +54,7 @@ namespace IrccServer
                 byte[] headerBytes = getBytes(HEADER_SIZE);
                 if (null == headerBytes)
                     break;
-                recvdHeader = bytesToHeader(headerBytes);
+                recvdHeader = BytesToHeader(headerBytes);
                 recvdRequest.header = recvdHeader;
 
                 // get DATA
@@ -61,59 +63,21 @@ namespace IrccServer
                     break;
                 recvdRequest.data = dataBytes;
 
-                //string configString = "10.100.58.5:26379,keepAlive=180";
-                string configString = System.IO.File.ReadAllText("redis.conf");
-                ConfigurationOptions configOptions = ConfigurationOptions.Parse(configString);
-                RedisHelper redis = new RedisHelper(configOptions);
-
-                //TODO: fix this shit
-                switch (recvdRequest.header.code)
+                recvHandler = new ReceiveHandler(this, recvdRequest, redis);
+                Packet respPacket = recvHandler.GetResponse();
+                byte[] respBytes = PacketToBytes(respPacket);
+                bool sendSuccess = sendBytes(respBytes);
+                if (!sendSuccess)
                 {
-                    case Code.SIGNUP:
-                        byte[] usernameBytes = new byte[12];
-                        byte[] passwordBytes = new byte[18];
-                        Array.Copy(recvdRequest.data, 0, usernameBytes, 0, 12);
-                        Array.Copy(recvdRequest.data, 12, passwordBytes, 0, 18);
-
-                        string username = Encoding.UTF8.GetString(usernameBytes).Trim();
-                        string password = Encoding.UTF8.GetString(passwordBytes).Trim();
-
-                        userId = redis.CreateUser(username, password);
-                        break;
-                    case Code.SIGNIN:
-                        usernameBytes = new byte[12];
-                        passwordBytes = new byte[18];
-                        Array.Copy(recvdRequest.data, 0, usernameBytes, 0, 12);
-                        Array.Copy(recvdRequest.data, 0, passwordBytes, 0, 18);
-
-                        username = Encoding.UTF8.GetString(usernameBytes).Trim();
-                        password = Encoding.UTF8.GetString(passwordBytes).Trim();
-
-                        userId = redis.SignIn(username, password);
-                        Console.WriteLine(userId + "has signed in");
-                        break;
-                    default :
-                        break;
+                    Console.WriteLine("Send failed.");
+                    break;
                 }
-
-                /* //DEBUG
-                Console.WriteLine("Received {0}bytes from {1}:{2}", bytecount, remoteHost, remotePort);
-                Console.WriteLine("COMM: {0}\nCODE: {1}\nSIZE: {2}\nRSVD: {3}\nDATA: {4}", recvdRequest.header.comm, recvdRequest.header.code, recvdRequest.header.size, recvdRequest.header.reserved, Encoding.UTF8.GetString(recvdRequest.data));
-                */
 
                 if (!isConnected())
                 {
                     Console.WriteLine("Connection lost with {0}:{1}", remoteHost, remotePort);
                     break;
                 }
-                
-                /* Echo */
-                /*
-                String ss = Encoding.UTF8.GetString(bytes).Substring(0, bytecount);
-                byte[] sendBytes = Encoding.UTF8.GetBytes(ss);
-                bytecount = so.Send(sendBytes);
-                //Console.WriteLine("Sent     {0}bytes to {1}:{2} - {3} \n", bytecount, remoteHost, remotePort, Encoding.UTF8.GetString(bytes));
-                */
             }
             Console.WriteLine("Closing connection with {0}:{1}", remoteHost, remotePort);
             so.Shutdown(SocketShutdown.Both);
@@ -135,6 +99,20 @@ namespace IrccServer
             }
 
             return bytes;
+        }
+
+        private bool sendBytes(byte[] bytes)
+        {
+            try
+            {
+                bytecount = so.Send(bytes);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("\n" + e.Message);
+                return false;
+            }
+            return true;
         }
 
         private bool isConnected()
