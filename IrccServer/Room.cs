@@ -13,6 +13,8 @@ namespace IrccServer
         private List<ServerHandle> servers;
         private List<ClientHandle> clients;
 
+        public List<ClientHandle> Clients { get { return clients; } }
+
         public Room(long roomId)
         {
             this.roomId = roomId;

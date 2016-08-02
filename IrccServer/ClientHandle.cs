@@ -53,30 +53,42 @@ namespace IrccServer
             for (;;)
             {
                 // Receive
-                Header recvdHeader;
-                Packet recvdRequest;
+                Header recvHeader;
+                Packet recvRequest;
 
                 // get HEADER
                 byte[] headerBytes = getBytes(HEADER_SIZE);
                 if (null == headerBytes)
                     break;
-                recvdHeader = BytesToHeader(headerBytes);
-                recvdRequest.header = recvdHeader;
+                else
+                {
+                    recvHeader = BytesToHeader(headerBytes);
+                    recvRequest.header = recvHeader;
+                }
+
+                //if (headerBytes.Length != HEADER_SIZE && headerBytes[0] == byte.MaxValue)
+                    
+                recvHeader = BytesToHeader(headerBytes);
+                recvRequest.header = recvHeader;
 
                 // get DATA
-                byte[] dataBytes = getBytes(recvdHeader.size);
+                byte[] dataBytes = getBytes(recvHeader.size);
                 if (null == dataBytes)
                     break;
-                recvdRequest.data = dataBytes;
+                recvRequest.data = dataBytes;
 
-                recvHandler = new ReceiveHandler(this, recvdRequest, redis);
+                //if(recvRequest.header.code == 0) afjweogjawegaweg
+                recvHandler = new ReceiveHandler(this, recvRequest, redis);
                 Packet respPacket = recvHandler.GetResponse();
-                byte[] respBytes = PacketToBytes(respPacket);
-                bool sendSuccess = sendBytes(respBytes);
-                if (!sendSuccess)
+                if (-1 != respPacket.header.comm)
                 {
-                    Console.WriteLine("Send failed.");
-                    break;
+                    byte[] respBytes = PacketToBytes(respPacket);
+                    bool sendSuccess = sendBytes(respBytes);
+                    if (!sendSuccess)
+                    {
+                        Console.WriteLine("Send failed.");
+                        break;
+                    }
                 }
 
                 if (!isConnected())
@@ -91,17 +103,44 @@ namespace IrccServer
             Console.WriteLine("Connection closed\n");
         }
 
+        public void EchoSend(Packet echoPacket)
+        {
+            byte[] echoBytes = PacketToBytes(echoPacket);
+            bool echoSuccess = sendBytes(echoBytes);
+            if (!echoSuccess)
+            {
+                Console.WriteLine("FAIL: Relay message to client {0} failed", userId);
+                /*
+                Console.WriteLine("Closing connection with {0}:{1}", remoteHost, remotePort);
+                so.Shutdown(SocketShutdown.Both);
+                so.Close();
+                Console.WriteLine("Connection closed\n");
+                */
+            }
+        }
+
         private byte[] getBytes(int length)
         {
             byte[] bytes = new byte[length];
             try
             {
+                so.ReceiveTimeout = 30000;
                 bytecount = so.Receive(bytes);
             }
             catch (Exception e)
             {
-                Console.WriteLine("\n" + e.Message);
-                return null;
+                if (!isConnected())
+                {
+                    Console.WriteLine("\n" + e.Message);
+                    return null;
+                }
+                else
+                {
+                    //puts -1 bytes into first 2 bytes
+                    byte[] noRespCommBytes = BitConverter.GetBytes((short)-1);
+                    bytes[0] = noRespCommBytes[0];
+                    bytes[1] = noRespCommBytes[1];
+                }
             }
 
             return bytes;

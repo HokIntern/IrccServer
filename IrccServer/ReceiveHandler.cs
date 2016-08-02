@@ -17,7 +17,10 @@ namespace IrccServer
         Packet recvPacket;
         RedisHelper redis;
         static List<ClientHandle> lobbyClients;
+        static List<ServerHandle> peerServers;
         static Dictionary<long, Room> rooms;
+
+        Header NoResponseHeader = new Header(-1, 0, 0);
 
         public ReceiveHandler()
         {
@@ -46,8 +49,14 @@ namespace IrccServer
             if(debug)
                 Console.WriteLine("==RECEIVED: \n" + PacketDebug(recvPacket));
 
+            if(-1 == recvPacket.header.comm)
+            {
+                //------------No action from client----------
+                returnHeader = new Header(Comm.CS, Code.HEARTBEAT, 0);
+                returnData = null;
+            }
             //Client to Server side
-            if (Comm.CS == recvPacket.header.comm)
+            else if (Comm.CS == recvPacket.header.comm)
             {
                 byte[] roomnameBytes;
                 byte[] roomIdBytes;
@@ -85,7 +94,8 @@ namespace IrccServer
                         {
                             //add room to dictionary
                             requestedRoom = new Room(roomId);
-                            rooms.Add(roomId, requestedRoom);
+                            lock(rooms)
+                                rooms.Add(roomId, requestedRoom);
 
                             //make packet for room create success
                             roomIdBytes = BitConverter.GetBytes(roomId);
@@ -122,18 +132,16 @@ namespace IrccServer
                     case Code.HEARTBEAT:
                         //FE -> CL side
                         break;
-                        /*
                     case Code.HEARTBEAT_RES:
                         //CL -> FE side
+                        returnHeader = NoResponseHeader;
+                        returnData = null;
                         break;
-                        */
 
 
                     //------------JOIN------------
                     case Code.JOIN:
                         //CL -> FE side
-                        //TODO: need to consider when join to a room in other server
-
                         if (createAndJoin)
                             createAndJoin = false; //reuse roomId already set and set flag to false
                         else
@@ -142,21 +150,36 @@ namespace IrccServer
                         //remove user from room if in room else remove from lobby
                         lobbyClients.Remove(client);
                         
-                        if (!rooms.TryGetValue(roomId, out requestedRoom))
+                        lock (rooms)
                         {
-                            //no such key exists error (no such room error)
-                            returnHeader = new Header(Comm.CS, Code.JOIN_NULL_ERR, 0);
-                            returnData = null;
-                        }
-                        else
-                        {
-                            requestedRoom.AddClient(client);
-                            client.Status = ClientHandle.State.Room;
-                            client.RoomId = roomId;
+                            if (!rooms.TryGetValue(roomId, out requestedRoom))
+                            {
+                                /*
+                                returnHeader = new Header(Comm.SS, Code.SJOIN, );
+                                returnData = ;
+                                */
+                                //room not in local server. check other servers
+                                /*
+                                foreach (ServerHandle server in peerServers)
+                                {
 
-                            roomIdBytes = BitConverter.GetBytes(roomId);
-                            returnHeader = new Header(Comm.CS, Code.JOIN_RES, roomIdBytes.Length);
-                            returnData = roomIdBytes;
+                                    //TODO: do this
+                                }  TODO:NOW
+                                */
+                                //no such key exists error (no such room error)
+                                returnHeader = new Header(Comm.CS, Code.JOIN_NULL_ERR, 0);
+                                returnData = null;
+                            }
+                            else
+                            {
+                                requestedRoom.AddClient(client);
+                                client.Status = ClientHandle.State.Room;
+                                client.RoomId = roomId;
+
+                                roomIdBytes = BitConverter.GetBytes(roomId);
+                                returnHeader = new Header(Comm.CS, Code.JOIN_RES, roomIdBytes.Length);
+                                returnData = roomIdBytes;
+                            }
                         }
                         break;
                     case Code.JOIN_FULL_ERR:
@@ -194,26 +217,34 @@ namespace IrccServer
                     //------------MSG------------
                     case Code.MSG:
                         //CL <--> FE side
-                        /*
-                        roomIdBytes = new byte[xxx];
-                        msgBytes = new BytesToHeader[xxx];
-                        Array.Copy(recvPacket.data, 0, roomIdBytes, 0, xxx);
-                        Array.Copy(recvPacket.data, 0, msgBytes, 0, xxx);
-                        roomId = roomIdBytes.toInt;
-                        msg = UTF8Encoding.GetEncoding.getstring(msgBytes);
+                        //update user chat count. make it so that it increments value in redis
+                        client.ChatCount++;
+                        //redis.UpdateUser(client.UserId, );
+                        client.ChatCount = 0;
 
-                        lock (rooms)
+                        lock(rooms)
                         {
-                            foreach user as rooms.getHash(client.roomId).clients
+                            if(!rooms.TryGetValue(client.RoomId, out requestedRoom))
                             {
-                                //make packet and send
+                                // room doesnt exist error
                             }
-                            foreach server as rooms.getHash(client.roomId).servers
+                            else
                             {
-                                //make packet and send
+                                foreach (ClientHandle peerClient in requestedRoom.Clients)
+                                    peerClient.EchoSend(recvPacket);
+                                /*
+                                foreach server as rooms.getHash(client.roomId).servers
+                                {
+                                    //make packet and send
+                                }
+                                */
+
+                                //comm == -1 means there shouldnt be anything sent by
+                                //ClientHandle instance
+                                returnHeader = NoResponseHeader;
+                                returnData = null;
                             }
                         }
-                        */
                         break;
                     case Code.MSG_ERR:
                         //CL <--> FE side
@@ -293,6 +324,11 @@ namespace IrccServer
                     //------------SUCCESS------------
                     case Code.SUCCESS:
                         //
+                        break;
+
+                    default:
+                        if(debug)
+                            Console.WriteLine("Unknown code: {0}\n", recvPacket.header.code);
                         break;
                 }
             }
