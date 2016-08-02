@@ -17,13 +17,19 @@ namespace IrccServer
         Socket so;
         int bytecount;
 
-        long userId;
-        State state;
-        bool isDummy;
-        int roomId;
-        int chattingCount;
-
+        private long userId;
+        private State status;
+        private bool isDummy;
+        private long roomId;
+        private int chatCount;
         ReceiveHandler recvHandler;
+
+        public long UserId { get { return userId; } }
+        public State Status { get { return status; } set { status = value; } }
+        public bool IsDummy { get { return isDummy; } }
+        public long RoomId { get { return roomId; } set { roomId = value; } }
+        public int ChatCount { get { return chatCount; }  set { chatCount = value; } }
+
 
         public enum State
         {

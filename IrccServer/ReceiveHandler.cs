@@ -16,13 +16,13 @@ namespace IrccServer
         ClientHandle client;
         Packet recvPacket;
         RedisHelper redis;
-        static List<ClientHandle> clients;
-        static HashSet<Room> rooms;
+        static List<ClientHandle> lobbyClients;
+        static Dictionary<long, Room> rooms;
 
         public ReceiveHandler()
         {
-            clients = new List<ClientHandle>();
-            rooms = new HashSet<Room>();
+            lobbyClients = new List<ClientHandle>();
+            rooms = new Dictionary<long, Room>();
         }
 
         public ReceiveHandler(ClientHandle client, Packet recvPacket, RedisHelper redis)
@@ -31,7 +31,7 @@ namespace IrccServer
             this.recvPacket = recvPacket;
             this.redis = redis;
 
-            clients.Add(client);
+            lobbyClients.Add(client);
         }
 
         //public Packet PacketHandler()
@@ -41,21 +41,60 @@ namespace IrccServer
             Header returnHeader = new Header();
             byte[] returnData = null;
 
+            bool debug = true;
+
+            if(debug)
+                Console.WriteLine("==RECEIVED: \n" + PacketDebug(recvPacket));
+
             //Client to Server side
             if (Comm.CS == recvPacket.header.comm)
             {
-                byte[] usernameBytes = new byte[12];
-                byte[] passwordBytes = new byte[18];
+                byte[] roomnameBytes;
+                byte[] roomIdBytes;
+                byte[] usernameBytes;
+                byte[] passwordBytes;
                 string username;
                 string password;
+                string roomname;
                 long userId;
-                
+                long roomId = 0;
+                bool createAndJoin = false;
+                Room requestedRoom;
+
                 switch (recvPacket.header.code)
                 {
                     //------------CREATE------------
                     case Code.CREATE:
                         //CL -> FE side
-                        break;
+                        // bytes to roomname
+                        int dataSize = recvPacket.header.size;
+                        roomnameBytes = new byte[dataSize];
+                        Array.Copy(recvPacket.data, 0, roomnameBytes, 0, dataSize);
+
+                        roomname = Encoding.UTF8.GetString(roomnameBytes).Trim();
+                        roomId = redis.CreateRoom(roomname);
+
+                        if (-1 == roomId)
+                        {
+                            //make packet for room duplicate
+                            returnHeader = new Header(Comm.CS, Code.CREATE_DUPLICATE_ERR, 0);
+                            returnData = null;
+                            break;
+                        }
+                        else
+                        {
+                            //add room to dictionary
+                            requestedRoom = new Room(roomId);
+                            rooms.Add(roomId, requestedRoom);
+
+                            //make packet for room create success
+                            roomIdBytes = BitConverter.GetBytes(roomId);
+                            returnHeader = new Header(Comm.CS, Code.CREATE_RES, roomIdBytes.Length);
+                            returnData = roomIdBytes;
+
+                            createAndJoin = true;
+                            goto case Code.JOIN;
+                        }
                     case Code.CREATE_DUPLICATE_ERR:
                         //FE -> CL side
                         break;
@@ -92,16 +131,33 @@ namespace IrccServer
 
                     //------------JOIN------------
                     case Code.JOIN:
-                        roomIdBytes = new byte[xxx];
-                        Array.Copy(recvPacket.data, 0, roomIdBytes, 0, xxx);
-                        roomId = roomIdBytes.toInt;
-
-                        client.state = ClientHandle.State.Room;
-                        client.roomId = roomId;
-
-                        returnHeader = new Header(Comm.CS, Code.JOIN_RES, 0);
-                        returnData = null;
                         //CL -> FE side
+                        //TODO: need to consider when join to a room in other server
+
+                        if (createAndJoin)
+                            createAndJoin = false; //reuse roomId already set and set flag to false
+                        else
+                            roomId = ToInt64(recvPacket.data, 0);
+                        
+                        //remove user from room if in room else remove from lobby
+                        lobbyClients.Remove(client);
+                        
+                        if (!rooms.TryGetValue(roomId, out requestedRoom))
+                        {
+                            //no such key exists error (no such room error)
+                            returnHeader = new Header(Comm.CS, Code.JOIN_NULL_ERR, 0);
+                            returnData = null;
+                        }
+                        else
+                        {
+                            requestedRoom.AddClient(client);
+                            client.Status = ClientHandle.State.Room;
+                            client.RoomId = roomId;
+
+                            roomIdBytes = BitConverter.GetBytes(roomId);
+                            returnHeader = new Header(Comm.CS, Code.JOIN_RES, roomIdBytes.Length);
+                            returnData = roomIdBytes;
+                        }
                         break;
                     case Code.JOIN_FULL_ERR:
                         //FE -> CL side
@@ -138,6 +194,7 @@ namespace IrccServer
                     //------------MSG------------
                     case Code.MSG:
                         //CL <--> FE side
+                        /*
                         roomIdBytes = new byte[xxx];
                         msgBytes = new BytesToHeader[xxx];
                         Array.Copy(recvPacket.data, 0, roomIdBytes, 0, xxx);
@@ -156,6 +213,7 @@ namespace IrccServer
                                 //make packet and send
                             }
                         }
+                        */
                         break;
                     case Code.MSG_ERR:
                         //CL <--> FE side
@@ -165,6 +223,7 @@ namespace IrccServer
                     //------------SIGNIN------------
                     case Code.SIGNIN:
                         //CL -> FE -> BE side
+                        //bytes to string
                         usernameBytes = new byte[12];
                         passwordBytes = new byte[18];
                         Array.Copy(recvPacket.data, 0, usernameBytes, 0, 12);
@@ -173,13 +232,16 @@ namespace IrccServer
                         username = Encoding.UTF8.GetString(usernameBytes).Trim();
                         password = Encoding.UTF8.GetString(passwordBytes).Trim();
                         userId = redis.SignIn(username, password);
+
                         if (-1 == userId)
                         {
+                            //make packet for signin error
                             returnHeader = new Header(Comm.CS, Code.SIGNIN_ERR, 0);
                             returnData = null;
                         }
                         else
                         {
+                            //make packet for signin success
                             returnHeader = new Header(Comm.CS, Code.SIGNIN_RES, 0);
                             returnData = null;
                         }
@@ -195,6 +257,7 @@ namespace IrccServer
                     //------------SIGNUP------------
                     case Code.SIGNUP:
                         //CL -> FE -> BE side
+                        //bytes to string
                         usernameBytes = new byte[12];
                         passwordBytes = new byte[18];
                         Array.Copy(recvPacket.data, 0, usernameBytes, 0, 12);
@@ -206,11 +269,13 @@ namespace IrccServer
 
                         if (-1 == userId)
                         {
+                            //make packet for signup error
                             returnHeader = new Header(Comm.CS, Code.SIGNUP_ERR, 0);
                             returnData = null;
                         }
                         else
                         {
+                            //make packet for signup success
                             returnHeader = new Header(Comm.CS, Code.SIGNUP_RES, 0);
                             returnData = null;
                         }
@@ -283,7 +348,9 @@ namespace IrccServer
 
             }
             returnPacket = new Packet(returnHeader, returnData);
-      
+            if (debug)
+                Console.WriteLine("==SEND: \n" + PacketDebug(returnPacket));
+
             return returnPacket;
             /*
             switch (packet.header.code)
@@ -320,6 +387,21 @@ namespace IrccServer
                     break;
             }
             */
+        }
+        
+        private long ToInt64(byte[] bytes, int startIndex)
+        {
+            long result = 0;
+            try
+            {
+                result = BitConverter.ToInt64(bytes, startIndex);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("fuck you. you messsed up");
+            }
+
+            return result;
         }
     }
 }

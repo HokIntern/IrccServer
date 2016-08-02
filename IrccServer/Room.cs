@@ -9,10 +9,32 @@ namespace IrccServer
 {
     class Room
     {
-        List<ServerHandle> servers;
-        List<ClientHandle> clients;
-        public Room()
-        {            
+        private long roomId;
+        private List<ServerHandle> servers;
+        private List<ClientHandle> clients;
+
+        public Room(long roomId)
+        {
+            this.roomId = roomId;
+            servers = new List<ServerHandle>();
+            clients = new List<ClientHandle>();
+        }
+
+        public void AddClient(ClientHandle client)
+        {
+            clients.Add(client);
+        }
+        public void RemoveClient(ClientHandle client)
+        {
+            clients.Remove(client);
+        }
+        public void AddServer(ServerHandle server)
+        {
+            servers.Add(server);
+        }
+        public void RemoveServer(ServerHandle server)
+        {
+            servers.Remove(server);
         }
     }
 }
