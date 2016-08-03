@@ -60,12 +60,18 @@ namespace IrccServer
                     break;
                 recvRequest.data = dataBytes;
 
+                ClientHandle surrogateClient;
                 recvHandler = new ReceiveHandler(this, recvRequest);
-                Packet respPacket = recvHandler.GetResponse();
+                Packet respPacket = recvHandler.GetResponse(out surrogateClient);
                 if (-1 != respPacket.header.comm)
                 {
                     byte[] respBytes = PacketToBytes(respPacket);
-                    bool sendSuccess = sendBytes(respBytes);
+                    bool sendSuccess = false;
+                    if (surrogateClient == null)
+                        sendSuccess = sendBytes(respBytes);
+                    else
+                        sendSuccess = sendBytes(surrogateClient.So, respBytes);
+
                     if (!sendSuccess)
                     {
                         Console.WriteLine("Send failed.");
@@ -174,6 +180,20 @@ namespace IrccServer
         }
 
         private bool sendBytes(byte[] bytes)
+        {
+            try
+            {
+                int bytecount = so.Send(bytes);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("\n" + e.Message);
+                return false;
+            }
+            return true;
+        }
+
+        private bool sendBytes(Socket so, byte[] bytes)
         {
             try
             {

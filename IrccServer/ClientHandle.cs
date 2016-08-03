@@ -24,6 +24,7 @@ namespace IrccServer
         private int chatCount;
         ReceiveHandler recvHandler;
 
+        public Socket So { get { return so; } }
         public long UserId { get { return userId; } }
         public State Status { get { return status; } set { status = value; } }
         public bool IsDummy { get { return isDummy; } }
@@ -77,8 +78,9 @@ namespace IrccServer
                     break;
                 recvRequest.data = dataBytes;
 
+                ClientHandle surrogateClient;
                 recvHandler = new ReceiveHandler(this, recvRequest, redis);
-                Packet respPacket = recvHandler.GetResponse();
+                Packet respPacket = recvHandler.GetResponse(out surrogateClient);
                 if (-1 != respPacket.header.comm)
                 {
                     byte[] respBytes = PacketToBytes(respPacket);
