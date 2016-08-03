@@ -19,12 +19,12 @@ namespace IrccServer
         static List<ClientHandle> lobbyClients;
         static List<ServerHandle> peerServers;
         static Dictionary<long, Room> rooms;
-
         Header NoResponseHeader = new Header(-1, 0, 0);
 
         public ReceiveHandler()
         {
             lobbyClients = new List<ClientHandle>();
+            peerServers = new List<ServerHandle>();
             rooms = new Dictionary<long, Room>();
         }
 
@@ -35,6 +35,30 @@ namespace IrccServer
             this.redis = redis;
 
             lobbyClients.Add(client);
+        }
+
+        public ReceiveHandler(Packet recvPacket)
+        {
+            this.recvPacket = recvPacket;
+        }
+
+        public void SetPeerServers(string[] peerInfo)
+        {
+            foreach (string peerAddress in peerInfo)
+            {
+                Socket so = ConnectToPeer(peerAddress);
+                if (null != so)
+                {
+                    ServerHandle peer = new ServerHandle(so, "amclient");
+                    peerServers.Add(peer);
+                }
+            }
+        }
+
+        public void AddPeerServer(ServerHandle peer)
+        {
+            if(!peerServers.Contains(peer))
+                peerServers.Add(peer);
         }
 
         //public Packet PacketHandler()
@@ -154,18 +178,20 @@ namespace IrccServer
                         {
                             if (!rooms.TryGetValue(roomId, out requestedRoom))
                             {
-                                /*
-                                returnHeader = new Header(Comm.SS, Code.SJOIN, );
-                                returnData = ;
-                                */
+                                byte[] sreqData = BitConverter.GetBytes(roomId); ;
+                                Header sreqHeader = new Header(Comm.SS, Code.SJOIN, sreqData.Length);
+                                Packet sreqPacket = new Packet(sreqHeader, sreqData);
+                                
                                 //room not in local server. check other servers
-                                /*
-                                foreach (ServerHandle server in peerServers)
+                                foreach (ServerHandle peer in peerServers)
                                 {
+                                    Packet srespPacket;
+                                    
+                                    bool success = peer.Send(sreqPacket);
+                                    if(success)
+                                        srespPacket = peer.Receive();
+                                }
 
-                                    //TODO: do this
-                                }  TODO:NOW
-                                */
                                 //no such key exists error (no such room error)
                                 returnHeader = new Header(Comm.CS, Code.JOIN_NULL_ERR, 0);
                                 returnData = null;
@@ -438,6 +464,37 @@ namespace IrccServer
             }
 
             return result;
+        }
+
+        private Socket ConnectToPeer(string info)
+        {
+            string host;
+            int port;
+
+            string[] hostport = info.Split(':');
+            host = hostport[0];
+            if (!int.TryParse(hostport[1], out port))
+            {
+                Console.Error.WriteLine("port must be int. given: {0}", hostport[1]);
+                Environment.Exit(0);
+            }
+
+            Socket so = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            IPAddress ipAddress = IPAddress.Parse(host);
+            Console.WriteLine("Establishing connection to {0}:{1} ...", host, port);
+
+            try
+            {
+                so.Connect(ipAddress, port);
+                Console.WriteLine("Connection established.\n");
+            }
+            catch(Exception e)
+            {
+                Console.WriteLine("Peer is not alive.");
+                return null;
+            }
+
+            return so;
         }
     }
 }

@@ -16,16 +16,42 @@ namespace IrccServer
     {
         static void Main(string[] args)
         {
-            String host = null;     //Default
-            String port = "30000";  //Default
-            Socket s1;
+            string host = null;     //Default
+            string clientPort = "30000";  //Default
+            string serverPort = "40000";  //Default
+            TcpServer echoc;
             TcpServer echos;
+
+            if(args.Length == 0)
+            {
+                Console.WriteLine("Format: IrccServer -cp [client port] -sp [server port]");
+                Environment.Exit(0);
+            }
+
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (args[i] == "--help")
+                {
+                    Console.WriteLine("Format: IrccServer -cp [client port] -sp [server port]");
+                    Environment.Exit(0);
+                }
+                else if (args[i] == "-cp")
+                    clientPort = args[++i];
+                else if (args[i] == "-sp")
+                    serverPort = args[++i];
+                else
+                {
+                    Console.Error.WriteLine("ERROR: incorrect inputs \nFormat: IrccServer -cp [client port] -sp [server port]");
+                    Environment.Exit(0);
+                }
+            }
             //HashSet<Room> rooms = new HashSet<Room>();    //room_id to Room instance mapping
             //HashSet<ClientHandle> clients = new HashSet<ClientHandle>();    //user_id to state,room_id mapping
             //List<ClientHandle> clientThreads = new List<ClientHandle>();
 
             /* if only given port, host is ANY */
-            echos = new TcpServer(host, port);
+            echoc = new TcpServer(host, clientPort);
+            echos = new TcpServer(host, serverPort);
 
             //string configString = "10.100.58.5:26379,keepAlive=180";
             Console.WriteLine("Connecting to Redis...");
@@ -36,27 +62,39 @@ namespace IrccServer
             Console.WriteLine("Initializing lobby and rooms...");
             ReceiveHandler recvHandler = new ReceiveHandler();
 
+            Console.WriteLine("Connecting to other IRC servers...");
+            string[] peerInfo = System.IO.File.ReadAllLines("peer_info.conf");
+            recvHandler.SetPeerServers(peerInfo);
+
+            //thread for accepting clients
+            Thread chThread = new Thread(() => AcceptClient(echoc, redis));
+            chThread.Start();
+
+            //thread for accepting servers
+            Thread shThread = new Thread(() => AcceptServer(echos, recvHandler));
+            shThread.Start();
+                
+            //ClientHandle client = new ClientHandle(s1, ref redis); // ref because if they have to share the same connection
+            //clients.Add(client);
+        }
+
+        static void AcceptClient(TcpServer echoc, RedisHelper redis)
+        {
             while (true)
             {
-                s1 = echos.so.Accept();
-                ClientHandle client = new ClientHandle(s1, redis);
-                //ClientHandle client = new ClientHandle(s1, ref redis); // ref because if they have to share the same connection
-                //clients.Add(client);
+                Socket s = echoc.so.Accept();
+                ClientHandle client = new ClientHandle(s, redis);
             }
         }
 
-        public class ServerHandle
+        static void AcceptServer(TcpServer echos, ReceiveHandler recvHandler)
         {
-            Socket so;
-            public ServerHandle(Socket s)
+            while (true)
             {
-                so = s;
-                Thread chThread = new Thread(start);
-                chThread.Start();
-            }
+                Socket s = echos.so.Accept();
+                ServerHandle server = new ServerHandle(s, "amserver");
 
-            private void start()
-            {
+                recvHandler.AddPeerServer(server);
             }
         }
     }

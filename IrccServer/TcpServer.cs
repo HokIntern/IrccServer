@@ -11,11 +11,11 @@ namespace IrccServer
 {
     class TcpServer
     {
-        String host;
+        string host;
         int port;
         public Socket so;
 
-        public TcpServer(String hname, String pname)
+        public TcpServer(string hname, string pname)
         {
             host = hname;
             if (!Int32.TryParse(pname, out port))

@@ -77,7 +77,6 @@ namespace IrccServer
                     break;
                 recvRequest.data = dataBytes;
 
-                //if(recvRequest.header.code == 0) afjweogjawegaweg
                 recvHandler = new ReceiveHandler(this, recvRequest, redis);
                 Packet respPacket = recvHandler.GetResponse();
                 if (-1 != respPacket.header.comm)
