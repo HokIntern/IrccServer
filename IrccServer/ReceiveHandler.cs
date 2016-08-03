@@ -35,7 +35,7 @@ namespace IrccServer
             this.recvPacket = recvPacket;
             this.redis = redis;
 
-            lobbyClients.Add(client.UserId, client);
+            //lobbyClients.Add(client.UserId, client);
         }
 
         public ReceiveHandler(ServerHandle server, Packet recvPacket)
@@ -128,9 +128,11 @@ namespace IrccServer
                             roomIdBytes = BitConverter.GetBytes(roomId);
                             returnHeader = new Header(Comm.CS, Code.CREATE_RES, roomIdBytes.Length);
                             returnData = roomIdBytes;
-
+                            /*
                             createAndJoin = true;
                             goto case Code.JOIN;
+                            */
+                            break;
                         }
                     case Code.CREATE_DUPLICATE_ERR:
                         //FE -> CL side
@@ -192,7 +194,6 @@ namespace IrccServer
                                 Packet sreqPacket = new Packet(sreqHeader, sreqData);
 
                                 //room not in local server. check other servers
-                                bool roomExists = false;
                                 foreach (ServerHandle peer in peerServers)
                                 {
                                     bool success = peer.Send(sreqPacket);
@@ -298,7 +299,7 @@ namespace IrccServer
                     //------------MSG------------
                     case Code.MSG:
                         //CL <--> FE side
-                        //update user chat count. make it so that it increments value in redis
+                        //TODO: update user chat count. make it so that it increments value in redis
                         client.ChatCount++;
                         //redis.UpdateUser(client.UserId, );
                         client.ChatCount = 0;
@@ -307,6 +308,7 @@ namespace IrccServer
                         {
                             if(!rooms.TryGetValue(client.RoomId, out requestedRoom))
                             {
+                                Console.WriteLine("ERROR: Msg - Room doesn't exist");
                                 // room doesnt exist error
                             }
                             else
@@ -350,6 +352,8 @@ namespace IrccServer
                         }
                         else
                         {
+                            client.UserId = userId;
+                            lobbyClients.Add(userId, client);
                             //make packet for signin success
                             returnHeader = new Header(Comm.CS, Code.SIGNIN_RES, 0);
                             returnData = null;
@@ -360,6 +364,12 @@ namespace IrccServer
                         break;
                     case Code.SIGNIN_RES:
                         //BE -> FE -> CL side
+                        break;
+                    case Code.SIGNIN_DUMMY:
+                        //CL -> FE
+                        userId = redis.CreateDummy();
+                        userId = redis.SignInDummy(userId);
+                        client.IsDummy = true;
                         break;
 
 
@@ -384,6 +394,7 @@ namespace IrccServer
                         }
                         else
                         {
+                            client.UserId = userId;
                             //make packet for signup success
                             returnHeader = new Header(Comm.CS, Code.SIGNUP_RES, 0);
                             returnData = null;
@@ -501,6 +512,8 @@ namespace IrccServer
                                 newJoinRoom.AddClient(client);
                                 newJoinRoom.AddServer(server);
 
+                                rooms.Add(recvRoomId, newJoinRoom);
+
                                 client.Status = ClientHandle.State.Room;
                                 client.RoomId = recvRoomId;
                             }
@@ -581,15 +594,15 @@ namespace IrccServer
                     //------------SMSG------------                
                     case Code.SMSG:
                         //FE side
-                        roomIdBytes = new byte[16];
-                        Array.Copy(recvPacket.data, 0, roomIdBytes, 0, 16);
+                        roomIdBytes = new byte[8];
+                        Array.Copy(recvPacket.data, 0, roomIdBytes, 0, 8);
                         long roomId = ToInt64(roomIdBytes, 0);
                         
                         lock (rooms)
                         {
                             if (!rooms.TryGetValue(roomId, out requestedRoom))
                             {
-                                // room doesnt exist error
+                                Console.WriteLine("ERROR: SMSG - room doesn't exist {0}", roomId);
                             }
                             else
                             {

@@ -14,6 +14,8 @@ namespace IrccServer
 {
     class ClientHandle
     {
+        bool debug = true;
+
         Socket so;
         int bytecount;
 
@@ -25,9 +27,9 @@ namespace IrccServer
         ReceiveHandler recvHandler;
 
         public Socket So { get { return so; } }
-        public long UserId { get { return userId; } }
+        public long UserId { get { return userId; } set { userId = value; } }
         public State Status { get { return status; } set { status = value; } }
-        public bool IsDummy { get { return isDummy; } }
+        public bool IsDummy { get { return isDummy; } set { isDummy = value; } }
         public long RoomId { get { return roomId; } set { roomId = value; } }
         public int ChatCount { get { return chatCount; }  set { chatCount = value; } }
 
@@ -78,9 +80,16 @@ namespace IrccServer
                     break;
                 recvRequest.data = dataBytes;
 
+                if (debug)
+                    Console.WriteLine("\n[Client] {0}:{1}", remoteHost, remotePort);
+
                 ClientHandle surrogateClient;
                 recvHandler = new ReceiveHandler(this, recvRequest, redis);
                 Packet respPacket = recvHandler.GetResponse(out surrogateClient);
+
+                if (debug) //Send endpoint
+                    Console.WriteLine("^[Client] {0}:{1}", remoteHost, remotePort);
+
                 if (-1 != respPacket.header.comm)
                 {
                     byte[] respBytes = PacketToBytes(respPacket);
