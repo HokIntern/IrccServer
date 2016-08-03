@@ -10,19 +10,31 @@ namespace IrccServer
     class Room
     {
         private long roomId;
+        private string roomname;
         private List<ServerHandle> servers;
         private List<ClientHandle> clients;
 
         public long RoomId { get { return roomId; } }
+        public string Roomname { get { return roomname; } }
         public List<ClientHandle> Clients { get { return clients; } }
         public List<ServerHandle> Servers { get { return servers; } }
 
+        public Room(long roomId, string roomname)
+        {
+            this.roomId = roomId;
+            this.roomname = roomname;
+            servers = new List<ServerHandle>();
+            clients = new List<ClientHandle>();
+        }
+
+        /*
         public Room(long roomId)
         {
             this.roomId = roomId;
             servers = new List<ServerHandle>();
             clients = new List<ClientHandle>();
         }
+        */
 
         public void AddClient(ClientHandle client)
         {

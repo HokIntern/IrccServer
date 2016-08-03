@@ -120,7 +120,7 @@ namespace IrccServer
                         else
                         {
                             //add room to dictionary
-                            requestedRoom = new Room(roomId);
+                            requestedRoom = new Room(roomId, roomname);
                             lock(rooms)
                                 rooms.Add(roomId, requestedRoom);
 
@@ -287,6 +287,48 @@ namespace IrccServer
                     //------------LIST------------
                     case Code.LIST:
                         //CL -> FE side
+                        if (!lobbyClients.ContainsKey(client.UserId))
+                            Console.WriteLine("you ain't in the lobby to list biatch");
+
+                        byte[] slistUserId = BitConverter.GetBytes(client.UserId);
+                        byte[] slistData = new byte[slistUserId.Length];
+
+                        Header slistHeader = new Header(Comm.SS, Code.SLIST, slistUserId.Length);
+                        Packet slistPacket = new Packet(slistHeader, slistUserId);
+
+                        //room not in local server. check other servers
+                        foreach (ServerHandle peer in peerServers)
+                        {
+                            bool success = peer.Send(slistPacket);
+
+                            if (!success)
+                                Console.WriteLine("ERROR: SJOIN send failed");
+                        }
+
+                        string[] pairArr = new string[rooms.Count];
+                        int length = 0;
+                        int i = 0;
+                        lock(rooms)
+                        {
+                            foreach (KeyValuePair<long, Room> entry in rooms)
+                            {
+                                string pair = entry.Key + ":" + entry.Value.Roomname + ";";
+                                pairArr[i++] = pair;
+                                length += pair.Length;
+                            }
+                        }
+
+                        byte[] listBytes = new byte[length];
+                        int prev = 0;
+                        foreach (string pair in pairArr)
+                        {
+                            byte[] pairBytes = Encoding.UTF8.GetBytes(pair);
+                            Array.Copy(listBytes, prev, pairBytes, 0, pairBytes.Length);
+                            prev = pairBytes.Length;
+                        }
+
+                        returnHeader = new Header(Comm.CS, Code.LIST_RES, listBytes.Length);
+                        returnData = listBytes;
                         break;
                     case Code.LIST_ERR:
                         //FE -> CL side
@@ -580,16 +622,54 @@ namespace IrccServer
                     //------------SLIST------------
                     case Code.SLIST:
                         //FE side
+                        string[] pairArr = new string[rooms.Count];
+                        int length = 0;
+                        int i = 0;
+                        lock (rooms)
+                        {
+                            foreach (KeyValuePair<long, Room> entry in rooms)
+                            {
+                                string pair = entry.Key + ":" + entry.Value.Roomname + ";";
+                                pairArr[i++] = pair;
+                                length += pair.Length;
+                            }
+                        }
+                        //userId is in recvPacket.data. need to forward it back so that
+                        //the receiver knows which connection needs to receive the response
+                        byte[] listBytes = new byte[length + recvPacket.data.Length];
+                        Array.Copy(listBytes, 0, recvPacket.data, 0, recvPacket.data.Length);
+                        int prev = recvPacket.data.Length;
+                        foreach (string pair in pairArr)
+                        {
+                            byte[] pairBytes = Encoding.UTF8.GetBytes(pair);
+                            Array.Copy(listBytes, prev, pairBytes, 0, pairBytes.Length);
+                            prev = pairBytes.Length;
+                        }
+
+                        returnHeader = new Header(Comm.SS, Code.SLIST_RES, listBytes.Length);
+                        returnData = listBytes;
                         break;
                     case Code.SLIST_ERR:
                         //FE side
                         break;
-                        /*
+                        
                     case Code.SLIST_RES:
                         //FE side
-                        break;
-                        */
+                        userId = ToInt64(recvPacket.data, 0);
 
+                        lock (lobbyClients)
+                        {
+                            if (!lobbyClients.TryGetValue(userId, out client))
+                                Console.WriteLine("ERROR: SJOIN_RES - user no longer exists");
+                        }
+
+                        surrogateCandidate = client;
+                        byte[] clientListBytes = new byte[recvPacket.data.Length - 8];
+                        Array.Copy(recvPacket.data, 8, clientListBytes, 0, clientListBytes.Length);
+                        returnHeader = new Header(Comm.CS, Code.LIST_RES, clientListBytes.Length);
+                        returnData = clientListBytes;
+                        break;
+                        
 
                     //------------SMSG------------                
                     case Code.SMSG:
