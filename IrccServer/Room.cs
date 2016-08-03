@@ -14,6 +14,7 @@ namespace IrccServer
         private List<ClientHandle> clients;
 
         public List<ClientHandle> Clients { get { return clients; } }
+        public List<ServerHandle> Servers { get { return servers; } }
 
         public Room(long roomId)
         {

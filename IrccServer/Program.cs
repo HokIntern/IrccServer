@@ -54,6 +54,7 @@ namespace IrccServer
             echos = new TcpServer(host, serverPort);
 
             //string configString = "10.100.58.5:26379,keepAlive=180";
+            //TODO: check if redis is alive after connecting
             Console.WriteLine("Connecting to Redis...");
             string configString = System.IO.File.ReadAllText("redis.conf");
             ConfigurationOptions configOptions = ConfigurationOptions.Parse(configString);

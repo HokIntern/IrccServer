@@ -306,15 +306,12 @@ namespace IrccServer
                             {
                                 foreach (ClientHandle peerClient in requestedRoom.Clients)
                                     peerClient.EchoSend(recvPacket);
-                                /*
-                                foreach server as rooms.getHash(client.roomId).servers
-                                {
-                                    //make packet and send
-                                }
-                                */
 
-                                //comm == -1 means there shouldnt be anything sent by
-                                //ClientHandle instance
+                                recvPacket.header.comm = Comm.SS;
+                                recvPacket.header.code = Code.SMSG;
+                                foreach (ServerHandle peerServer in requestedRoom.Servers)
+                                    peerServer.EchoSend(recvPacket);
+
                                 returnHeader = NoResponseHeader;
                                 returnData = null;
                             }
@@ -476,6 +473,25 @@ namespace IrccServer
                     //------------SMSG------------                
                     case Code.SMSG:
                         //FE side
+                        byte[] roomIdBytes = new byte[16];
+                        Array.Copy(recvPacket.data, 0, roomIdBytes, 0, 16);
+                        long roomId = ToInt64(roomIdBytes, 0);
+                        
+                        lock (rooms)
+                        {
+                            if (!rooms.TryGetValue(roomId, out requestedRoom))
+                            {
+                                // room doesnt exist error
+                            }
+                            else
+                            {
+                                foreach (ClientHandle peerClient in requestedRoom.Clients)
+                                    peerClient.EchoSend(recvPacket);
+
+                                returnHeader = NoResponseHeader;
+                                returnData = null;
+                            }
+                        }
                         break;
                     case Code.SMSG_ERR:
                         //FE side
@@ -503,7 +519,7 @@ namespace IrccServer
             }
             catch (Exception e)
             {
-                Console.WriteLine("fuck you. you messsed up");
+                Console.WriteLine("bytes to int64: fuck you. you messsed up");
             }
 
             return result;

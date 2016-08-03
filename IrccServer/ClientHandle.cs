@@ -135,10 +135,13 @@ namespace IrccServer
                 }
                 else
                 {
-                    //puts -1 bytes into first 2 bytes
-                    byte[] noRespCommBytes = BitConverter.GetBytes((short)-1);
-                    bytes[0] = noRespCommBytes[0];
-                    bytes[1] = noRespCommBytes[1];
+                    if (bytes.Length != 0)
+                    {
+                        //puts -1 bytes into first 2 bytes
+                        byte[] noRespCommBytes = BitConverter.GetBytes((short)-1);
+                        bytes[0] = noRespCommBytes[0];
+                        bytes[1] = noRespCommBytes[1];
+                    }
                 }
             }
 
