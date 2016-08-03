@@ -60,7 +60,7 @@ namespace IrccServer
                     break;
                 recvRequest.data = dataBytes;
 
-                recvHandler = new ReceiveHandler(recvRequest);
+                recvHandler = new ReceiveHandler(this, recvRequest);
                 Packet respPacket = recvHandler.GetResponse();
                 if (-1 != respPacket.header.comm)
                 {

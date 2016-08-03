@@ -14,6 +14,7 @@ namespace IrccServer
     class ReceiveHandler
     {
         ClientHandle client;
+        ServerHandle server;
         Packet recvPacket;
         RedisHelper redis;
         static List<ClientHandle> lobbyClients;
@@ -37,8 +38,9 @@ namespace IrccServer
             lobbyClients.Add(client);
         }
 
-        public ReceiveHandler(Packet recvPacket)
+        public ReceiveHandler(ServerHandle server, Packet recvPacket)
         {
+            this.server = server;
             this.recvPacket = recvPacket;
         }
 
@@ -171,8 +173,8 @@ namespace IrccServer
                         else
                             roomId = ToInt64(recvPacket.data, 0);
                         
-                        //remove user from room if in room else remove from lobby
-                        lobbyClients.Remove(client);
+                        //TODO: allow client to join other room while in another room?
+                        //      or just allow to join when client is in lobby?
                         
                         lock (rooms)
                         {
@@ -181,23 +183,69 @@ namespace IrccServer
                                 byte[] sreqData = BitConverter.GetBytes(roomId); ;
                                 Header sreqHeader = new Header(Comm.SS, Code.SJOIN, sreqData.Length);
                                 Packet sreqPacket = new Packet(sreqHeader, sreqData);
-                                
+
                                 //room not in local server. check other servers
+                                bool roomExists = false;
                                 foreach (ServerHandle peer in peerServers)
                                 {
                                     Packet srespPacket;
                                     
                                     bool success = peer.Send(sreqPacket);
-                                    if(success)
+                                    if (success)
+                                    {
                                         srespPacket = peer.Receive();
+                                        if(Code.SJOIN_ERR == srespPacket.header.code)
+                                        {
+                                            continue;
+                                        }
+                                        else if(Code.SJOIN_RES == srespPacket.header.code)
+                                        {
+                                            roomExists = true;
+                                            long recvRoomId = BitConverter.ToInt64(srespPacket.data, 0);
+
+                                            if (recvRoomId != roomId)
+                                                Console.WriteLine("JOIN and SJOIN room id's don't match. you fucked up.");
+                                            else
+                                            {
+                                                if(!rooms.TryGetValue(roomId, out requestedRoom))
+                                                {
+                                                    //first SJOIN_RES from peer servers
+                                                    Room newJoinRoom = new Room(roomId);
+                                                    lobbyClients.Remove(client);
+                                                    newJoinRoom.AddClient(client);
+                                                    newJoinRoom.AddServer(peer);
+
+                                                    client.Status = ClientHandle.State.Room;
+                                                    client.RoomId = roomId;
+                                                }
+                                                else
+                                                {
+                                                    //room already made by previous iteration
+                                                    requestedRoom.AddServer(peer);
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
 
-                                //no such key exists error (no such room error)
-                                returnHeader = new Header(Comm.CS, Code.JOIN_NULL_ERR, 0);
-                                returnData = null;
+                                if (roomExists)
+                                {
+                                    //room exists in other peer irc servers
+                                    //created one in local and connected with peers
+                                    roomIdBytes = BitConverter.GetBytes(roomId);
+                                    returnHeader = new Header(Comm.CS, Code.JOIN_RES, roomIdBytes.Length);
+                                    returnData = roomIdBytes;
+                                }
+                                else
+                                {
+                                    //no such key exists error (no such room error)
+                                    returnHeader = new Header(Comm.CS, Code.JOIN_NULL_ERR, 0);
+                                    returnData = null;
+                                }
                             }
                             else
                             {
+                                lobbyClients.Remove(client);
                                 requestedRoom.AddClient(client);
                                 client.Status = ClientHandle.State.Room;
                                 client.RoomId = roomId;
@@ -375,6 +423,36 @@ namespace IrccServer
                     //------------SJOIN------------
                     case Code.SJOIN:
                         //FE side
+                        Room requestedRoom;
+                        long recvRoomId = BitConverter.ToInt64(recvPacket.data, 0);
+                        bool haveRoom;
+                        lock (rooms)
+                        {
+                            haveRoom = rooms.ContainsKey(recvRoomId);
+                            if(haveRoom)
+                            {
+                                if(rooms.TryGetValue(recvRoomId, out requestedRoom))
+                                    requestedRoom.AddServer(server);
+                            }
+                        }
+                        
+                        if(haveRoom)
+                        {
+                            returnHeader = new Header(Comm.SS, Code.SJOIN_RES, recvPacket.data.Length);
+                            returnData = recvPacket.data;
+                        }
+                        else
+                        {
+                            returnHeader = new Header(Comm.SS, Code.SJOIN_ERR, 0);
+                            returnData = null;
+                        }
+                        //response should include roomid
+                        break;
+                    case Code.SJOIN_RES:
+                        //FE side
+                        //check if room is made
+                        //no room: make room and add peer in server echo list
+                        //room exists: add peer in server echo list
                         break;
                     case Code.SJOIN_ERR:
                         //FE side
@@ -414,41 +492,6 @@ namespace IrccServer
                 Console.WriteLine("==SEND: \n" + PacketDebug(returnPacket));
 
             return returnPacket;
-            /*
-            switch (packet.header.code)
-            {
-
-                // ReceiveHandler recvHandler = new ReceiveHandler(Packet, this);
-                // ReceiveHandler.Join(this)
-                // this.state = State.Room
-                // this.roomId = xxxx
-                case Code.SIGNUP:
-                    byte[] usernameBytes = new byte[12];
-                    byte[] passwordBytes = new byte[18];
-                    Array.Copy(packet.data, 0, usernameBytes, 0, 12);
-                    Array.Copy(packet.data, 12, passwordBytes, 0, 18);
-
-                    string username = Encoding.UTF8.GetString(usernameBytes).Trim();
-                    string password = Encoding.UTF8.GetString(passwordBytes).Trim();
-
-                    userId = redis.CreateUser(username, password);
-                    break;
-                case Code.SIGNIN:
-                    usernameBytes = new byte[12];
-                    passwordBytes = new byte[18];
-                    Array.Copy(recvdRequest.data, 0, usernameBytes, 0, 12);
-                    Array.Copy(recvdRequest.data, 0, passwordBytes, 0, 18);
-
-                    username = Encoding.UTF8.GetString(usernameBytes).Trim();
-                    password = Encoding.UTF8.GetString(passwordBytes).Trim();
-
-                    userId = redis.SignIn(username, password);
-                    Console.WriteLine(userId + "has signed in");
-                    break;
-                default:
-                    break;
-            }
-            */
         }
         
         private long ToInt64(byte[] bytes, int startIndex)
