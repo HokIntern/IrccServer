@@ -75,14 +75,8 @@ namespace IrccServer
             if(debug)
                 Console.WriteLine("==RECEIVED: \n" + PacketDebug(recvPacket));
 
-            if(-1 == recvPacket.header.comm)
-            {
-                //------------No action from client----------
-                returnHeader = new Header(Comm.CS, Code.HEARTBEAT, 0);
-                returnData = null;
-            }
             //Client to Server side
-            else if (Comm.CS == recvPacket.header.comm)
+            if (Comm.CS == recvPacket.header.comm)
             {
                 byte[] roomnameBytes;
                 byte[] roomIdBytes;
@@ -98,6 +92,12 @@ namespace IrccServer
 
                 switch (recvPacket.header.code)
                 {
+                    //------------No action from client----------
+                    case -1:
+                        returnHeader = new Header(Comm.CS, Code.HEARTBEAT, 0);
+                        returnData = null;
+                        break;
+
                     //------------CREATE------------
                     case Code.CREATE:
                         //CL -> FE side
@@ -456,6 +456,24 @@ namespace IrccServer
                 long recvRoomId;
                 switch (recvPacket.header.code)
                 {
+                    //------------No action from client----------
+                    case -1:
+                        returnHeader = new Header(Comm.SS, Code.HEARTBEAT, 0);
+                        returnData = null;
+                        break;
+
+                    //------------HEARTBEAT------------
+                    case Code.HEARTBEAT:
+                        //FE -> CL side
+                        returnHeader = new Header(Comm.SS, Code.HEARTBEAT_RES, 0);
+                        returnData = null;
+                        break;
+                    case Code.HEARTBEAT_RES:
+                        //CL -> FE side
+                        returnHeader = NoResponseHeader;
+                        returnData = null;
+                        break;
+
                     //------------SDESTROY------------
                     case Code.SDESTROY:
                         //FE side
@@ -588,7 +606,7 @@ namespace IrccServer
             {
                 result = BitConverter.ToInt64(bytes, startIndex);
             }
-            catch (Exception e)
+            catch (Exception)
             {
                 Console.WriteLine("bytes to int64: fuck you. you messsed up");
             }
@@ -611,12 +629,12 @@ namespace IrccServer
 
             Socket so = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             IPAddress ipAddress = IPAddress.Parse(host);
-            Console.WriteLine("Establishing connection to {0}:{1} ...", host, port);
+            Console.WriteLine("[Server] Establishing connection to {0}:{1} ...", host, port);
 
             try
             {
                 so.Connect(ipAddress, port);
-                Console.WriteLine("Connection established.\n");
+                Console.WriteLine("[Server] Connection established.\n");
             }
             catch(Exception e)
             {

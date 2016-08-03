@@ -48,7 +48,7 @@ namespace IrccServer
         {
             string remoteHost = ((IPEndPoint)so.RemoteEndPoint).Address.ToString();
             string remotePort = ((IPEndPoint)so.RemoteEndPoint).Port.ToString();
-            Console.WriteLine("Connection established with {0}:{1}\n", remoteHost, remotePort);
+            Console.WriteLine("[Client] Connection established with {0}:{1}\n", remoteHost, remotePort);
 
             for (;;)
             {
@@ -137,10 +137,14 @@ namespace IrccServer
                 {
                     if (bytes.Length != 0)
                     {
-                        //puts -1 bytes into first 2 bytes
-                        byte[] noRespCommBytes = BitConverter.GetBytes((short)-1);
-                        bytes[0] = noRespCommBytes[0];
-                        bytes[1] = noRespCommBytes[1];
+                        //puts Comm.CS into 1st and 2nd bytes (COMM)
+                        byte[] noRespBytes = BitConverter.GetBytes(Comm.CS);
+                        bytes[0] = noRespBytes[0];
+                        bytes[1] = noRespBytes[1];
+                        //puts -1 bytes into 3rd and 4th bytes (CODE)
+                        noRespBytes = BitConverter.GetBytes((short)-1);
+                        bytes[2] = noRespBytes[0];
+                        bytes[3] = noRespBytes[1];
                     }
                 }
             }

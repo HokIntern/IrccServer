@@ -59,6 +59,11 @@ namespace IrccServer
             string configString = System.IO.File.ReadAllText("redis.conf");
             ConfigurationOptions configOptions = ConfigurationOptions.Parse(configString);
             RedisHelper redis = new RedisHelper(configOptions);
+            if(!redis.IsConnected())
+            {
+                Console.WriteLine("\nFailed to connect to Redis\nExiting...");
+                Environment.Exit(0);
+            }
 
             Console.WriteLine("Initializing lobby and rooms...");
             ReceiveHandler recvHandler = new ReceiveHandler();

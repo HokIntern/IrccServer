@@ -20,18 +20,18 @@ namespace IrccServer
         {
             so = s;
 
-            if("amserver" == status)
-            {
+            //if("amserver" == status)
+            //{
                 Thread shThread = new Thread(start);
                 shThread.Start();
-            }
+            //}
         }
 
         private void start()
         {
             string remoteHost = ((IPEndPoint)so.RemoteEndPoint).Address.ToString();
             string remotePort = ((IPEndPoint)so.RemoteEndPoint).Port.ToString();
-            Console.WriteLine("Connection established with {0}:{1}\n", remoteHost, remotePort);
+            Console.WriteLine("[Server] Connection established with {0}:{1}\n", remoteHost, remotePort);
 
             for (;;)
             {
@@ -149,7 +149,25 @@ namespace IrccServer
             }
             catch (Exception e)
             {
-                return null;
+                if (!isConnected())
+                {
+                    Console.WriteLine("\n" + e.Message);
+                    return null;
+                }
+                else
+                {
+                    if (bytes.Length != 0)
+                    {
+                        //puts Comm.SS into 1st and 2nd bytes (COMM)
+                        byte[] noRespBytes = BitConverter.GetBytes(Comm.SS);
+                        bytes[0] = noRespBytes[0];
+                        bytes[1] = noRespBytes[1];
+                        //puts -1 bytes into 3rd and 4th bytes (CODE)
+                        noRespBytes = BitConverter.GetBytes((short)-1);
+                        bytes[2] = noRespBytes[0];
+                        bytes[3] = noRespBytes[1];
+                    }
+                }
             }
 
             return bytes;
