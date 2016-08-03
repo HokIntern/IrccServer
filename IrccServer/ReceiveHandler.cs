@@ -201,7 +201,7 @@ namespace IrccServer
                                         else if(Code.SJOIN_RES == srespPacket.header.code)
                                         {
                                             roomExists = true;
-                                            long recvRoomId = BitConverter.ToInt64(srespPacket.data, 0);
+                                            long recvRoomId = ToInt64(srespPacket.data, 0);
 
                                             if (recvRoomId != roomId)
                                                 Console.WriteLine("JOIN and SJOIN room id's don't match. you fucked up.");
@@ -267,6 +267,52 @@ namespace IrccServer
                     //------------LEAVE------------
                     case Code.LEAVE:
                         //CL -> FE side
+                        if (lobbyClients.Contains(client))
+                        {
+                            returnHeader = new Header(Comm.CS, Code.LEAVE_ERR, 0);
+                            returnData = null;
+                        }
+                        else
+                        {
+                            bool roomEmpty = false;
+                            lock (rooms)
+                            {
+                                if (!rooms.TryGetValue(client.RoomId, out requestedRoom))
+                                {
+                                    Console.WriteLine("ERROR: Client is in a room that doesn't exist. WTF you fucked up.");
+                                    returnHeader = new Header(Comm.CS, Code.LEAVE_ERR, 0);
+                                    returnData = null;
+                                }
+                                else
+                                {
+                                    requestedRoom.RemoveClient(client);
+                                    client.RoomId = 0;
+                                    client.Status = ClientHandle.State.Lobby;
+
+                                    if(requestedRoom.Clients.Count == 0)
+                                    {
+                                        rooms.Remove(requestedRoom.RoomId);
+                                        roomEmpty = true;
+
+                                        returnHeader = new Header(Comm.CS, Code.LEAVE_RES, 0);
+                                        returnData = null;
+                                    }
+                                }
+                            }
+
+                            if (roomEmpty)
+                            {
+                                Packet reqPacket;
+                                Header reqHeader;
+                                roomIdBytes = BitConverter.GetBytes(requestedRoom.RoomId);
+                                reqHeader = new Header(Comm.SS, Code.SLEAVE, roomIdBytes.Length);
+                                reqPacket.header = reqHeader;
+                                reqPacket.data = roomIdBytes;
+
+                                foreach (ServerHandle peerServer in requestedRoom.Servers)
+                                    peerServer.EchoSend(reqPacket);
+                            }
+                        }
                         //remove clienthandle from room.clients
                         //check if clienthandle is empty
                         //if empty, send SDESTROY to servers in room.servers
@@ -406,6 +452,8 @@ namespace IrccServer
             //Server to Server Side
             else if (Comm.SS == recvPacket.header.comm)
             {
+                Room requestedRoom;
+                long recvRoomId;
                 switch (recvPacket.header.code)
                 {
                     //------------SDESTROY------------
@@ -420,8 +468,7 @@ namespace IrccServer
                     //------------SJOIN------------
                     case Code.SJOIN:
                         //FE side
-                        Room requestedRoom;
-                        long recvRoomId = BitConverter.ToInt64(recvPacket.data, 0);
+                        recvRoomId = ToInt64(recvPacket.data, 0);
                         bool haveRoom;
                         lock (rooms)
                         {
@@ -436,7 +483,7 @@ namespace IrccServer
                         if(haveRoom)
                         {
                             returnHeader = new Header(Comm.SS, Code.SJOIN_RES, recvPacket.data.Length);
-                            returnData = recvPacket.data;
+                            returnData = recvPacket.data; //need to send back room id. so receiver can check again if they are the same id
                         }
                         else
                         {
@@ -455,6 +502,30 @@ namespace IrccServer
                         //FE side
                         break;
 
+                    //------------SLEAVE-----------
+                    case Code.SLEAVE:
+                        //FE side
+                        recvRoomId = ToInt64(recvPacket.data, 0);
+
+                        lock (rooms)
+                        {
+                            if (rooms.ContainsKey(recvRoomId))
+                            {
+                                if (rooms.TryGetValue(recvRoomId, out requestedRoom))
+                                    requestedRoom.RemoveServer(server);
+                            }
+                        }
+
+                        //returnHeader = new Header(Comm.SS, Code.SLEAVE_RES, 0);
+                        returnHeader = NoResponseHeader;
+                        returnData = null;
+                        break;
+                    case Code.SLEAVE_ERR:
+                        //FE side
+                        break;
+                    case Code.SLEAVE_RES:
+                        //FE side
+                        break;
 
                     //------------SLIST------------
                     case Code.SLIST:
