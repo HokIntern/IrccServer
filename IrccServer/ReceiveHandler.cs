@@ -131,7 +131,7 @@ namespace IrccServer
 
             bool debug = true;
 
-            if(debug)
+            if(debug && recvPacket.header.code != Code.HEARTBEAT  && recvPacket.header.code != Code.HEARTBEAT_RES && recvPacket.header.code != -1)
                 Console.WriteLine("==RECEIVED: \n" + PacketDebug(recvPacket));
 
             //=============================COMM CS==============================
@@ -441,12 +441,23 @@ namespace IrccServer
                         }
                         else
                         {
-                            client.UserId = userId;
-                            client.Status = ClientHandle.State.Lobby;
-                            lobbyClients.Add(userId, client);
-                            //make packet for signin success
-                            returnHeader = new Header(Comm.CS, Code.SIGNIN_RES, 0);
-                            returnData = null;
+                            try
+                            {
+                                lobbyClients.Add(userId, client);
+                                client.UserId = userId;
+                                client.Status = ClientHandle.State.Lobby;
+
+                                //make packet for signin success
+                                returnHeader = new Header(Comm.CS, Code.SIGNIN_RES, 0);
+                                returnData = null;
+                            }
+                            catch (Exception)
+                            {
+                                Console.WriteLine("same userId added to lobby - you fucked up");
+                                //make packet for signin fail
+                                returnHeader = new Header(Comm.CS, Code.SIGNIN_ERR, 0);
+                                returnData = null;
+                            }
                         }
                         break;
                     case Code.SIGNIN_ERR:
@@ -764,9 +775,17 @@ namespace IrccServer
                         byte[] listBytes = new byte[length + recvPacket.data.Length];
                         Array.Copy(recvPacket.data, 0, listBytes, 0, recvPacket.data.Length);
                         int prev = recvPacket.data.Length;
-                        foreach (string pair in pairArr)
+                        for (int j = 0; j < pairArr.Length; j++)
                         {
-                            byte[] pairBytes = Encoding.UTF8.GetBytes(pair);
+                            byte[] pairBytes;
+                            string pair = pairArr[j];
+                            if (j == pairArr.Length - 1)
+                                pairBytes = Encoding.UTF8.GetBytes(pair.Substring(0, pair.Length - 1)); //remove the last semicolon
+                            else
+                                pairBytes = Encoding.UTF8.GetBytes(pair);
+
+                            if (debug)
+                                Console.WriteLine("=============list  " + Encoding.UTF8.GetString(pairBytes));
                             Array.Copy(pairBytes, 0, listBytes, prev, pairBytes.Length);
                             prev += pairBytes.Length;
                         }
@@ -811,6 +830,8 @@ namespace IrccServer
                             }
                             else
                             {
+                                recvPacket.header.comm = Comm.CS;
+                                recvPacket.header.code = Code.MSG;
                                 foreach (ClientHandle peerClient in requestedRoom.Clients)
                                     peerClient.EchoSend(recvPacket);
 
@@ -832,7 +853,7 @@ namespace IrccServer
 
             //===============Build Response/Set Surrogate/Return================
             returnPacket = new Packet(returnHeader, returnData);
-            if (debug && returnPacket.header.comm != -1)
+            if (debug && returnPacket.header.comm != -1 && returnPacket.header.code != Code.HEARTBEAT && returnPacket.header.code != Code.HEARTBEAT_RES)
                 Console.WriteLine("==SEND: \n" + PacketDebug(returnPacket));
 
             surrogateClient = surrogateCandidate;

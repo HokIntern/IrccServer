@@ -120,6 +120,8 @@ namespace IrccServer
 
         public void EchoSend(Packet echoPacket)
         {
+            if (debug)
+                Console.WriteLine("==SEND: \n" + PacketDebug(echoPacket));
             byte[] echoBytes = PacketToBytes(echoPacket);
             bool echoSuccess = sendBytes(echoBytes);
             if (!echoSuccess)
