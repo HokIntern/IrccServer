@@ -293,9 +293,9 @@ namespace IrccServer
                         byte[] slistUserId = BitConverter.GetBytes(client.UserId);
                         byte[] slistData = new byte[slistUserId.Length];
 
-                        Header slistHeader = new Header(Comm.SS, Code.SLIST, slistUserId.Length);
+                        Header slistHeader = new Header(Comm.SS, Code.SLIST, slistUserId.Length, (short)peerServers.Count);
                         Packet slistPacket = new Packet(slistHeader, slistUserId);
-
+                        int peerServerCount = 1; //start is 1, because need to include self as server that will give LIST_RES response
                         //room not in local server. check other servers
                         foreach (ServerHandle peer in peerServers)
                         {
@@ -303,6 +303,8 @@ namespace IrccServer
 
                             if (!success)
                                 Console.WriteLine("ERROR: SJOIN send failed");
+                            else
+                                peerServerCount++;
                         }
 
                         string[] pairArr = new string[rooms.Count];
@@ -327,7 +329,7 @@ namespace IrccServer
                             prev = pairBytes.Length;
                         }
 
-                        returnHeader = new Header(Comm.CS, Code.LIST_RES, listBytes.Length);
+                        returnHeader = new Header(Comm.CS, Code.LIST_RES, listBytes.Length, (short)peerServerCount);
                         returnData = listBytes;
                         break;
                     case Code.LIST_ERR:
@@ -470,7 +472,10 @@ namespace IrccServer
                 Room requestedRoom;
                 long userId;
                 long recvRoomId;
+                string recvRoomname;
+                string roomname = "";
                 byte[] roomIdBytes;
+                byte[] roomnameBytes;
 
                 switch (recvPacket.header.code)
                 {
@@ -512,15 +517,22 @@ namespace IrccServer
                             haveRoom = rooms.ContainsKey(recvRoomId);
                             if(haveRoom)
                             {
-                                if(rooms.TryGetValue(recvRoomId, out requestedRoom))
+                                if (rooms.TryGetValue(recvRoomId, out requestedRoom))
+                                {
                                     requestedRoom.AddServer(server);
+                                    roomname = requestedRoom.Roomname;
+                                }
                             }
                         }
                         
                         if(haveRoom)
                         {
-                            returnHeader = new Header(Comm.SS, Code.SJOIN_RES, recvPacket.data.Length);
-                            returnData = recvPacket.data; //need to send back room id. so receiver can check again if they are the same id
+                            roomnameBytes = Encoding.UTF8.GetBytes(roomname);
+                            byte[] respBytes = new byte[recvPacket.data.Length + roomnameBytes.Length];
+                            Array.Copy(recvPacket.data, 0, respBytes, 0, 16);
+                            Array.Copy(roomnameBytes, 0, respBytes, 16, roomnameBytes.Length);
+                            returnHeader = new Header(Comm.SS, Code.SJOIN_RES, respBytes.Length);
+                            returnData = respBytes; //need to send back room id. so receiver can check again if they are the same id
                         }
                         else
                         {
@@ -537,6 +549,9 @@ namespace IrccServer
                         //send through the surrogateClient
                         userId = ToInt64(recvPacket.data, 0);
                         recvRoomId = ToInt64(recvPacket.data, 8);
+                        roomnameBytes = new byte[recvPacket.data.Length - 16]; //16 because 8bytes for userid, 8bytes for roomid
+                        Array.Copy(recvPacket.data, 16, roomnameBytes, 0, roomnameBytes.Length);
+                        recvRoomname = Encoding.UTF8.GetString(roomnameBytes);
                         
                         lock(lobbyClients)
                         {
@@ -549,7 +564,7 @@ namespace IrccServer
                             if (!rooms.TryGetValue(recvRoomId, out requestedRoom))
                             {
                                 //first SJOIN_RES from peer servers
-                                Room newJoinRoom = new Room(recvRoomId);
+                                Room newJoinRoom = new Room(recvRoomId, recvRoomname);
                                 lobbyClients.Remove(client.UserId);
                                 newJoinRoom.AddClient(client);
                                 newJoinRoom.AddServer(server);
@@ -646,7 +661,7 @@ namespace IrccServer
                             prev = pairBytes.Length;
                         }
 
-                        returnHeader = new Header(Comm.SS, Code.SLIST_RES, listBytes.Length);
+                        returnHeader = new Header(Comm.SS, Code.SLIST_RES, listBytes.Length, recvPacket.header.sequence);
                         returnData = listBytes;
                         break;
                     case Code.SLIST_ERR:
@@ -666,7 +681,7 @@ namespace IrccServer
                         surrogateCandidate = client;
                         byte[] clientListBytes = new byte[recvPacket.data.Length - 8];
                         Array.Copy(recvPacket.data, 8, clientListBytes, 0, clientListBytes.Length);
-                        returnHeader = new Header(Comm.CS, Code.LIST_RES, clientListBytes.Length);
+                        returnHeader = new Header(Comm.CS, Code.LIST_RES, clientListBytes.Length, recvPacket.header.sequence);
                         returnData = clientListBytes;
                         break;
                         
