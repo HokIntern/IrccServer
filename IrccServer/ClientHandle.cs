@@ -17,7 +17,9 @@ namespace IrccServer
         bool debug = true;
 
         Socket so;
+        RedisHelper redis;
         int bytecount;
+        int heartbeatMiss = 0;
 
         private long userId;
         private State status;
@@ -36,12 +38,13 @@ namespace IrccServer
 
         public enum State
         {
-            Lobby, Room, Error
+            Online, Offline, Lobby, Room, Error
         }
 
         public ClientHandle(Socket s, RedisHelper redis)
         {
             so = s;
+            this.redis = redis;
             Thread chThread = new Thread(() => start(redis));
             chThread.Start();
             //chThread.Abort();
@@ -62,7 +65,10 @@ namespace IrccServer
                 // get HEADER
                 byte[] headerBytes = getBytes(HEADER_SIZE);
                 if (null == headerBytes)
+                {
+                    signout();               
                     break;
+                }
                 else
                 {
                     recvHeader = BytesToHeader(headerBytes);
@@ -77,7 +83,10 @@ namespace IrccServer
                 // get DATA
                 byte[] dataBytes = getBytes(recvHeader.size);
                 if (null == dataBytes)
+                {
+                    signout();
                     break;
+                }
                 recvRequest.data = dataBytes;
 
                 if (debug)
@@ -129,13 +138,26 @@ namespace IrccServer
             }
         }
 
+        private void signout()
+        {
+            redis.SignOut(this.userId);
+            ReceiveHandler.RemoveClient(this);
+            this.roomId = 0;
+            this.status = State.Offline;
+        }
+
         private byte[] getBytes(int length)
         {
             byte[] bytes = new byte[length];
             try
             {
-                so.ReceiveTimeout = 30000;
+                so.ReceiveTimeout = 60000;
                 bytecount = so.Receive(bytes);
+
+                //assumes that the line above will throw exception 
+                //if timeout, so the line below will not be reached
+                //if an exception is thrown.
+                heartbeatMiss = 0;
             }
             catch (Exception e)
             {
@@ -148,6 +170,10 @@ namespace IrccServer
                 {
                     if (bytes.Length != 0)
                     {
+                        heartbeatMiss++;
+                        if(heartbeatMiss == 2)
+                            return null;
+
                         //puts Comm.CS into 1st and 2nd bytes (COMM)
                         byte[] noRespBytes = BitConverter.GetBytes(Comm.CS);
                         bytes[0] = noRespBytes[0];

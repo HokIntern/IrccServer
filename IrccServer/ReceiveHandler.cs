@@ -77,6 +77,7 @@ namespace IrccServer
                 Console.WriteLine("==RECEIVED: \n" + PacketDebug(recvPacket));
 
             //Client to Server side
+
             if (Comm.CS == recvPacket.header.comm)
             {
                 byte[] roomnameBytes;
@@ -293,7 +294,7 @@ namespace IrccServer
                         byte[] slistUserId = BitConverter.GetBytes(client.UserId);
                         byte[] slistData = new byte[slistUserId.Length];
 
-                        Header slistHeader = new Header(Comm.SS, Code.SLIST, slistUserId.Length, (short)peerServers.Count);
+                        Header slistHeader = new Header(Comm.SS, Code.SLIST, slistUserId.Length, (short)(peerServers.Count + 1)); // +1, because need to include self because server that will give LIST_RES response
                         Packet slistPacket = new Packet(slistHeader, slistUserId);
                         int peerServerCount = 1; //start is 1, because need to include self as server that will give LIST_RES response
                         //room not in local server. check other servers
@@ -307,6 +308,9 @@ namespace IrccServer
                                 peerServerCount++;
                         }
 
+                        if (debug)
+                            Console.WriteLine("\n========================SEQC: " + peerServerCount);
+
                         string[] pairArr = new string[rooms.Count];
                         int length = 0;
                         int i = 0;
@@ -315,8 +319,9 @@ namespace IrccServer
                             foreach (KeyValuePair<long, Room> entry in rooms)
                             {
                                 string pair = entry.Key + ":" + entry.Value.Roomname + ";";
-                                pairArr[i++] = pair;
-                                length += pair.Length;
+                                pairArr[i] = pair;
+                                i++;
+                                length += Encoding.UTF8.GetByteCount(pair);
                             }
                         }
 
@@ -325,7 +330,9 @@ namespace IrccServer
                         foreach (string pair in pairArr)
                         {
                             byte[] pairBytes = Encoding.UTF8.GetBytes(pair);
-                            Array.Copy(listBytes, prev, pairBytes, 0, pairBytes.Length);
+                            if (debug)
+                                Console.WriteLine("=============list  " + Encoding.UTF8.GetString(pairBytes));
+                            Array.Copy(pairBytes, 0, listBytes, prev, pairBytes.Length);
                             prev = pairBytes.Length;
                         }
 
@@ -397,6 +404,7 @@ namespace IrccServer
                         else
                         {
                             client.UserId = userId;
+                            client.Status = ClientHandle.State.Lobby;
                             lobbyClients.Add(userId, client);
                             //make packet for signin success
                             returnHeader = new Header(Comm.CS, Code.SIGNIN_RES, 0);
@@ -645,19 +653,20 @@ namespace IrccServer
                             foreach (KeyValuePair<long, Room> entry in rooms)
                             {
                                 string pair = entry.Key + ":" + entry.Value.Roomname + ";";
-                                pairArr[i++] = pair;
-                                length += pair.Length;
+                                pairArr[i] = pair;
+                                i++;
+                                length += Encoding.UTF8.GetByteCount(pair);
                             }
                         }
                         //userId is in recvPacket.data. need to forward it back so that
                         //the receiver knows which connection needs to receive the response
                         byte[] listBytes = new byte[length + recvPacket.data.Length];
-                        Array.Copy(listBytes, 0, recvPacket.data, 0, recvPacket.data.Length);
+                        Array.Copy(recvPacket.data, 0, listBytes, 0, recvPacket.data.Length);
                         int prev = recvPacket.data.Length;
                         foreach (string pair in pairArr)
                         {
                             byte[] pairBytes = Encoding.UTF8.GetBytes(pair);
-                            Array.Copy(listBytes, prev, pairBytes, 0, pairBytes.Length);
+                            Array.Copy(pairBytes, 0, listBytes, prev, pairBytes.Length);
                             prev = pairBytes.Length;
                         }
 
@@ -725,6 +734,34 @@ namespace IrccServer
 
             surrogateClient = surrogateCandidate;
             return returnPacket;
+        }
+
+        public static void RemoveClient(ClientHandle client)
+        {
+            if (client.Status == ClientHandle.State.Room)
+            {
+                Room requestedRoom;
+                lock (rooms)
+                {
+                    if (!rooms.TryGetValue(client.RoomId, out requestedRoom))
+                    {
+                        Console.WriteLine("ERROR: REMOVECLIENT - room doesn't exist {0}", client.RoomId);
+                    }
+                    else
+                    {
+                        requestedRoom.RemoveClient(client);
+                    }
+                }
+            }
+            else if (client.Status == ClientHandle.State.Lobby)
+            {
+                lock (lobbyClients)
+                    lobbyClients.Remove(client.UserId);
+            }
+            else
+            {
+                Console.WriteLine("ERROR: REMOVECLIENT - you messed up");
+            }
         }
         
         private long ToInt64(byte[] bytes, int startIndex)
