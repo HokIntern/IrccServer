@@ -345,7 +345,7 @@ namespace IrccServer
                         //CL <--> FE side
                         //TODO: update user chat count. make it so that it increments value in redis
                         client.ChatCount++;
-                        //redis.UpdateUser(client.UserId, );
+                        redis.IncrementUserChatCount(client.UserId);
                         client.ChatCount = 0;
 
                         lock(rooms)
