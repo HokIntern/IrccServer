@@ -20,6 +20,7 @@ namespace IrccServer
         static Dictionary<long, ClientHandle> lobbyClients;
         static List<ServerHandle> peerServers;
         static Dictionary<long, Room> rooms;
+        static Dictionary<long, int[]> peerRespWait; //key: userId, value [0]: seqc, [1]: current seq count, [2]: success
         Header NoResponseHeader = new Header(-1, 0, 0);
 
         public ReceiveHandler()
@@ -69,13 +70,9 @@ namespace IrccServer
                 lock (rooms)
                 {
                     if (!rooms.TryGetValue(client.RoomId, out requestedRoom))
-                    {
                         Console.WriteLine("ERROR: REMOVECLIENT - room doesn't exist {0}", client.RoomId);
-                    }
                     else
-                    {
                         requestedRoom.RemoveClient(client);
-                    }
                 }
             }
             else if (client.Status == ClientHandle.State.Lobby)
@@ -84,11 +81,46 @@ namespace IrccServer
                     lobbyClients.Remove(client.UserId);
             }
             else
-            {
                 Console.WriteLine("ERROR: REMOVECLIENT - you messed up");
-            }
         }
+        public Packet ResponseCreate(Packet recvPacket, RedisHelper redis)
+        {
+            Packet response;
+            Header returnHeader;
+            byte[] returnData;
+            // bytes to roomname
+            int dataSize = recvPacket.header.size;
+            byte[] roomnameBytes = new byte[dataSize];
+            Array.Copy(recvPacket.data, 0, roomnameBytes, 0, dataSize);
 
+            string roomname = Encoding.UTF8.GetString(roomnameBytes).Trim();
+            long roomId = redis.CreateRoom(roomname);
+
+            if (-1 == roomId)
+            {
+                //make packet for room duplicate
+                returnHeader = new Header(Comm.CS, Code.CREATE_DUPLICATE_ERR, 0);
+                returnData = null;
+            }
+            else
+            {
+                //add room to dictionary
+                Room requestedRoom = new Room(roomId, roomname);
+                lock (rooms)
+                    rooms.Add(roomId, requestedRoom);
+
+                //make packet for room create success
+                byte[] roomIdBytes = BitConverter.GetBytes(roomId);
+                returnHeader = new Header(Comm.CS, Code.CREATE_RES, roomIdBytes.Length);
+                returnData = roomIdBytes;
+                /*
+                createAndJoin = true;
+                goto case Code.JOIN;
+                */
+            }
+            response = new Packet(returnHeader, returnData);
+            return response;
+        }
         public Packet GetResponse(out ClientHandle surrogateClient)
         {
             Packet returnPacket;
@@ -115,6 +147,7 @@ namespace IrccServer
                 long roomId = 0;
                 bool createAndJoin = false;
                 Room requestedRoom;
+                Packet responsePacket;
 
                 switch (recvPacket.header.code)
                 {
@@ -123,59 +156,19 @@ namespace IrccServer
                         returnHeader = new Header(Comm.CS, Code.HEARTBEAT, 0);
                         returnData = null;
                         break;
-
                     //------------CREATE------------
                     case Code.CREATE:
                         //CL -> FE side
-                        // bytes to roomname
-                        int dataSize = recvPacket.header.size;
-                        roomnameBytes = new byte[dataSize];
-                        Array.Copy(recvPacket.data, 0, roomnameBytes, 0, dataSize);
+                        responsePacket = ResponseCreate(recvPacket, redis);
 
-                        roomname = Encoding.UTF8.GetString(roomnameBytes).Trim();
-                        roomId = redis.CreateRoom(roomname);
-
-                        if (-1 == roomId)
-                        {
-                            //make packet for room duplicate
-                            returnHeader = new Header(Comm.CS, Code.CREATE_DUPLICATE_ERR, 0);
-                            returnData = null;
-                            break;
-                        }
-                        else
-                        {
-                            //add room to dictionary
-                            requestedRoom = new Room(roomId, roomname);
-                            lock(rooms)
-                                rooms.Add(roomId, requestedRoom);
-
-                            //make packet for room create success
-                            roomIdBytes = BitConverter.GetBytes(roomId);
-                            returnHeader = new Header(Comm.CS, Code.CREATE_RES, roomIdBytes.Length);
-                            returnData = roomIdBytes;
-                            /*
-                            createAndJoin = true;
-                            goto case Code.JOIN;
-                            */
-                            break;
-                        }
-                    case Code.CREATE_DUPLICATE_ERR:
-                        //FE -> CL side
+                        //temp
+                        returnHeader = responsePacket.header;
+                        returnData = responsePacket.data;
                         break;
-                    case Code.CREATE_FULL_ERR:
-                        //FE -> CL side
-                        break;
-
-
                     //------------DESTROY------------
                     case Code.DESTROY:
                         //CL -> FE side
                         break;
-                    case Code.DESTROY_ERR:
-                        //FE -> CL side
-                        break;
-
-
                     //------------FAIL------------
                     case Code.FAIL:
                         returnHeader = NoResponseHeader;
@@ -215,8 +208,24 @@ namespace IrccServer
                                 Array.Copy(sreqUserId, 0, sreqData, 0, sreqUserId.Length);
                                 Array.Copy(sreqRoomId, 0, sreqData, sreqUserId.Length, sreqRoomId.Length);
 
-                                Header sreqHeader = new Header(Comm.SS, Code.SJOIN, sreqData.Length);
+                                Header sreqHeader = new Header(Comm.SS, Code.SJOIN, sreqData.Length, (short)peerServers.Count);
                                 Packet sreqPacket = new Packet(sreqHeader, sreqData);
+
+                                //put user into peerRespWait so when peer response arrives
+                                //there is a way to check if room doesn't exist.
+                                lock(peerRespWait)
+                                    peerRespWait.Add(client.UserId, new int[] { peerServers.Count, 0, 0 });
+
+                                if (peerServers.Count == 0)
+                                {
+                                    returnHeader = new Header(Comm.CS, Code.JOIN_NULL_ERR, 0);
+                                    returnData = null;
+                                }
+                                else
+                                {
+                                    returnHeader = NoResponseHeader;
+                                    returnData = null;
+                                }
 
                                 //room not in local server. check other servers
                                 foreach (ServerHandle peer in peerServers)
@@ -226,9 +235,6 @@ namespace IrccServer
                                     if (!success)
                                         Console.WriteLine("ERROR: SJOIN send failed");
                                 }
-
-                                returnHeader = NoResponseHeader;
-                                returnData = null;
                             }
                             else
                             {
@@ -269,6 +275,7 @@ namespace IrccServer
                                     Console.WriteLine("ERROR: Client is in a room that doesn't exist. WTF you fucked up.");
                                     returnHeader = new Header(Comm.CS, Code.LEAVE_ERR, 0);
                                     returnData = null;
+                                    break;
                                 }
                                 else
                                 {
@@ -286,6 +293,9 @@ namespace IrccServer
                                     }
                                 }
                             }
+
+                            lock (lobbyClients)
+                                lobbyClients.Add(client.UserId, client);
 
                             if (roomEmpty)
                             {
@@ -354,7 +364,7 @@ namespace IrccServer
                             if (debug)
                                 Console.WriteLine("=============list  " + Encoding.UTF8.GetString(pairBytes));
                             Array.Copy(pairBytes, 0, listBytes, prev, pairBytes.Length);
-                            prev = pairBytes.Length;
+                            prev += pairBytes.Length;
                         }
 
                         returnHeader = new Header(Comm.CS, Code.LIST_RES, listBytes.Length, (short)peerServerCount);
@@ -443,6 +453,12 @@ namespace IrccServer
                         userId = redis.CreateDummy();
                         userId = redis.SignInDummy(userId);
                         client.IsDummy = true;
+                        client.UserId = userId;
+                        client.Status = ClientHandle.State.Lobby;
+                        lobbyClients.Add(userId, client);
+                        //make packet for signin success
+                        returnHeader = new Header(Comm.CS, Code.SIGNIN_RES, 0);
+                        returnData = null;
                         break;
 
 
@@ -560,12 +576,12 @@ namespace IrccServer
                             byte[] respBytes = new byte[recvPacket.data.Length + roomnameBytes.Length];
                             Array.Copy(recvPacket.data, 0, respBytes, 0, 16);
                             Array.Copy(roomnameBytes, 0, respBytes, 16, roomnameBytes.Length);
-                            returnHeader = new Header(Comm.SS, Code.SJOIN_RES, respBytes.Length);
+                            returnHeader = new Header(Comm.SS, Code.SJOIN_RES, respBytes.Length, recvPacket.header.sequence);
                             returnData = respBytes; //need to send back room id. so receiver can check again if they are the same id
                         }
                         else
                         {
-                            returnHeader = new Header(Comm.SS, Code.SJOIN_ERR, recvPacket.data.Length);
+                            returnHeader = new Header(Comm.SS, Code.SJOIN_ERR, recvPacket.data.Length, recvPacket.header.sequence);
                             returnData = recvPacket.data;
                         }
                         //response should include roomid
@@ -585,7 +601,12 @@ namespace IrccServer
                         lock(lobbyClients)
                         {
                             if (!lobbyClients.TryGetValue(userId, out client))
+                            {
                                 Console.WriteLine("ERROR: SJOIN_RES - user no longer exists");
+                                returnHeader = NoResponseHeader;
+                                returnData = null;
+                                break;
+                            }
                         }
 
                         lock(rooms)
@@ -602,20 +623,44 @@ namespace IrccServer
 
                                 client.Status = ClientHandle.State.Room;
                                 client.RoomId = recvRoomId;
+                                
+                                //only the first SJOIN_RES will give the client a JOIN_RES response
+                                //the others will use NoResponseHeader (see 'else' returnHeader assignment)
+                                roomIdBytes = BitConverter.GetBytes(recvRoomId);
+                                returnHeader = new Header(Comm.CS, Code.JOIN_RES, roomIdBytes.Length);
+                                returnData = roomIdBytes;
                             }
                             else
                             {
                                 //room already made by previous iteration
                                 requestedRoom.AddServer(server);
+
+                                //only the first SJOIN_RES will give the client a JOIN_RES response
+                                //the others will use NoResponseHeader (see 'if' returnHeader assignment)
+                                returnHeader = NoResponseHeader;
+                                returnData = null;
                             }
+                        }
+
+                        lock (peerRespWait)
+                        {
+                            int[] respProgress;
+                            if (!peerRespWait.TryGetValue(client.UserId, out respProgress))
+                            {
+                                Console.WriteLine("ERROR: SJOIN_RES - respProgress no longer exists");
+                                returnHeader = NoResponseHeader;
+                                returnData = null;
+                            }
+
+                            respProgress[1]++; //increment progress
+                            respProgress[2] = 1; //set join success to true
+                            if (respProgress[0] == respProgress[1])
+                                peerRespWait.Remove(client.UserId);
                         }
 
                         //room exists in other peer irc servers
                         //created one in local and connected with peers
                         surrogateCandidate = client;
-                        roomIdBytes = BitConverter.GetBytes(recvRoomId);
-                        returnHeader = new Header(Comm.CS, Code.JOIN_RES, roomIdBytes.Length);
-                        returnData = roomIdBytes;
                         break;
                     case Code.SJOIN_ERR:
                         //FE side
@@ -630,12 +675,40 @@ namespace IrccServer
                         lock (lobbyClients)
                         {
                             if (!lobbyClients.TryGetValue(userId, out client))
+                            {
                                 Console.WriteLine("ERROR: SJOIN_RES - user no longer exists");
+                                returnHeader = NoResponseHeader;
+                                returnData = null;
+                                break;
+                            }
+                        }
+
+                        lock (peerRespWait)
+                        {
+                            int[] respProgress;
+                            if (!peerRespWait.TryGetValue(client.UserId, out respProgress))
+                            {
+                                Console.WriteLine("ERROR: SJOIN_RES - respProgress no longer exists");
+                                returnHeader = NoResponseHeader;
+                                returnData = null;
+                            }
+
+                            respProgress[1]++; //increment progress
+                            respProgress[2] = respProgress[2] == 1 ? 1 : 0; //set join success to true
+                            if (respProgress[0] == respProgress[1] && respProgress[2] == 0)
+                            {
+                                peerRespWait.Remove(client.UserId);
+                                returnHeader = new Header(Comm.CS, Code.JOIN_NULL_ERR, 0);
+                                returnData = null;
+                            }
+                            else
+                            {
+                                returnHeader = NoResponseHeader;
+                                returnData = null;
+                            }
                         }
 
                         surrogateCandidate = client;
-                        returnHeader = new Header(Comm.CS, Code.JOIN_NULL_ERR, 0);
-                        returnData = null;
                         break;
 
                     //------------SLEAVE-----------
@@ -688,7 +761,7 @@ namespace IrccServer
                         {
                             byte[] pairBytes = Encoding.UTF8.GetBytes(pair);
                             Array.Copy(pairBytes, 0, listBytes, prev, pairBytes.Length);
-                            prev = pairBytes.Length;
+                            prev += pairBytes.Length;
                         }
 
                         returnHeader = new Header(Comm.SS, Code.SLIST_RES, listBytes.Length, recvPacket.header.sequence);
