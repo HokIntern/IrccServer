@@ -34,8 +34,6 @@ namespace IrccServer
             this.client = client;
             this.recvPacket = recvPacket;
             this.redis = redis;
-
-            //lobbyClients.Add(client.UserId, client);
         }
 
         public ReceiveHandler(ServerHandle server, Packet recvPacket)
@@ -51,8 +49,8 @@ namespace IrccServer
                 Socket so = ConnectToPeer(peerAddress);
                 if (null != so)
                 {
-                    ServerHandle peer = new ServerHandle(so, "amclient");
-                    peerServers.Add(peer);
+                    ServerHandle peer = new ServerHandle(so);
+                    AddPeerServer(peer);
                 }
             }
         }
@@ -63,7 +61,34 @@ namespace IrccServer
                 peerServers.Add(peer);
         }
 
-        //public Packet PacketHandler()
+        public static void RemoveClient(ClientHandle client)
+        {
+            if (client.Status == ClientHandle.State.Room)
+            {
+                Room requestedRoom;
+                lock (rooms)
+                {
+                    if (!rooms.TryGetValue(client.RoomId, out requestedRoom))
+                    {
+                        Console.WriteLine("ERROR: REMOVECLIENT - room doesn't exist {0}", client.RoomId);
+                    }
+                    else
+                    {
+                        requestedRoom.RemoveClient(client);
+                    }
+                }
+            }
+            else if (client.Status == ClientHandle.State.Lobby)
+            {
+                lock (lobbyClients)
+                    lobbyClients.Remove(client.UserId);
+            }
+            else
+            {
+                Console.WriteLine("ERROR: REMOVECLIENT - you messed up");
+            }
+        }
+
         public Packet GetResponse(out ClientHandle surrogateClient)
         {
             Packet returnPacket;
@@ -76,8 +101,7 @@ namespace IrccServer
             if(debug)
                 Console.WriteLine("==RECEIVED: \n" + PacketDebug(recvPacket));
 
-            //Client to Server side
-
+            //=============================COMM CS==============================
             if (Comm.CS == recvPacket.header.comm)
             {
                 byte[] roomnameBytes;
@@ -308,9 +332,6 @@ namespace IrccServer
                                 peerServerCount++;
                         }
 
-                        if (debug)
-                            Console.WriteLine("\n========================SEQC: " + peerServerCount);
-
                         string[] pairArr = new string[rooms.Count];
                         int length = 0;
                         int i = 0;
@@ -474,7 +495,7 @@ namespace IrccServer
                 }
                 surrogateCandidate = client;
             }
-            //Server to Server Side
+            //=============================COMM SS==============================
             else if (Comm.SS == recvPacket.header.comm)
             {
                 Room requestedRoom;
@@ -723,45 +744,19 @@ namespace IrccServer
                         break;
                 }
             }
-            //Dummy to Server Side
+            //=============================COMM DS==============================
             else if (Comm.DUMMY == recvPacket.header.comm)
             {
                 
             }
+
+            //===============Build Response/Set Surrogate/Return================
             returnPacket = new Packet(returnHeader, returnData);
             if (debug && returnPacket.header.comm != -1)
                 Console.WriteLine("==SEND: \n" + PacketDebug(returnPacket));
 
             surrogateClient = surrogateCandidate;
             return returnPacket;
-        }
-
-        public static void RemoveClient(ClientHandle client)
-        {
-            if (client.Status == ClientHandle.State.Room)
-            {
-                Room requestedRoom;
-                lock (rooms)
-                {
-                    if (!rooms.TryGetValue(client.RoomId, out requestedRoom))
-                    {
-                        Console.WriteLine("ERROR: REMOVECLIENT - room doesn't exist {0}", client.RoomId);
-                    }
-                    else
-                    {
-                        requestedRoom.RemoveClient(client);
-                    }
-                }
-            }
-            else if (client.Status == ClientHandle.State.Lobby)
-            {
-                lock (lobbyClients)
-                    lobbyClients.Remove(client.UserId);
-            }
-            else
-            {
-                Console.WriteLine("ERROR: REMOVECLIENT - you messed up");
-            }
         }
         
         private long ToInt64(byte[] bytes, int startIndex)
@@ -799,7 +794,7 @@ namespace IrccServer
             try
             {
                 so.Connect(ipAddress, port);
-                Console.WriteLine("[Server] Connection established.\n");
+                //Console.WriteLine("[Server] Connection established.\n");
             }
             catch(Exception e)
             {

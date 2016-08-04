@@ -27,15 +27,6 @@ namespace IrccServer
             clients = new List<ClientHandle>();
         }
 
-        /*
-        public Room(long roomId)
-        {
-            this.roomId = roomId;
-            servers = new List<ServerHandle>();
-            clients = new List<ClientHandle>();
-        }
-        */
-
         public void AddClient(ClientHandle client)
         {
             clients.Add(client);

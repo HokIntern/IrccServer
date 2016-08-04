@@ -22,6 +22,7 @@ namespace IrccServer
             TcpServer echoc;
             TcpServer echos;
 
+            //=========================GET ARGS=================================
             if(args.Length == 0)
             {
                 Console.WriteLine("Format: IrccServer -cp [client port] -sp [server port]");
@@ -45,16 +46,14 @@ namespace IrccServer
                     Environment.Exit(0);
                 }
             }
-            //HashSet<Room> rooms = new HashSet<Room>();    //room_id to Room instance mapping
-            //HashSet<ClientHandle> clients = new HashSet<ClientHandle>();    //user_id to state,room_id mapping
-            //List<ClientHandle> clientThreads = new List<ClientHandle>();
 
+            //======================SOCKET BIND/LISTEN==========================
             /* if only given port, host is ANY */
             echoc = new TcpServer(host, clientPort);
             echos = new TcpServer(host, serverPort);
 
+            //======================REDIS CONNECT===============================
             //string configString = "10.100.58.5:26379,keepAlive=180";
-            //TODO: check if redis is alive after connecting
             Console.WriteLine("Connecting to Redis...");
             string configString = System.IO.File.ReadAllText("redis.conf");
             ConfigurationOptions configOptions = ConfigurationOptions.Parse(configString);
@@ -65,13 +64,16 @@ namespace IrccServer
                 Environment.Exit(0);
             }
 
+            //======================INITIALIZE==================================
             Console.WriteLine("Initializing lobby and rooms...");
             ReceiveHandler recvHandler = new ReceiveHandler();
 
+            //=====================CONNECT TO PEERS=============================
             Console.WriteLine("Connecting to other IRC servers...");
             string[] peerInfo = System.IO.File.ReadAllLines("peer_info.conf");
             recvHandler.SetPeerServers(peerInfo);
 
+            //================SERVER/CLIENT SOCKET ACCEPT=======================
             //thread for accepting clients
             Thread chThread = new Thread(() => AcceptClient(echoc, redis));
             chThread.Start();
@@ -79,9 +81,6 @@ namespace IrccServer
             //thread for accepting servers
             Thread shThread = new Thread(() => AcceptServer(echos, recvHandler));
             shThread.Start();
-                
-            //ClientHandle client = new ClientHandle(s1, ref redis); // ref because if they have to share the same connection
-            //clients.Add(client);
         }
 
         static void AcceptClient(TcpServer echoc, RedisHelper redis)
@@ -90,6 +89,8 @@ namespace IrccServer
             {
                 Socket s = echoc.so.Accept();
                 ClientHandle client = new ClientHandle(s, redis);
+                //'client' is not added to lobbyClient because
+                //lobby is for clients that signed in
             }
         }
 
@@ -98,7 +99,7 @@ namespace IrccServer
             while (true)
             {
                 Socket s = echos.so.Accept();
-                ServerHandle server = new ServerHandle(s, "amserver");
+                ServerHandle server = new ServerHandle(s);
 
                 recvHandler.AddPeerServer(server);
             }

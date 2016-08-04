@@ -18,15 +18,12 @@ namespace IrccServer
         Socket so;
         ReceiveHandler recvHandler;
 
-        public ServerHandle(Socket s, string status)
+        public ServerHandle(Socket s)
         {
             so = s;
 
-            //if("amserver" == status)
-            //{
-                Thread shThread = new Thread(start);
-                shThread.Start();
-            //}
+            Thread shThread = new Thread(start);
+            shThread.Start();
         }
 
         private void start()
@@ -37,11 +34,11 @@ namespace IrccServer
 
             for (;;)
             {
-                // Receive
+                //=========================Receive==============================
                 Header recvHeader;
                 Packet recvRequest;
 
-                // get HEADER
+                //========================get HEADER============================
                 byte[] headerBytes = getBytes(HEADER_SIZE);
                 if (null == headerBytes)
                     break;
@@ -50,18 +47,16 @@ namespace IrccServer
                     recvHeader = BytesToHeader(headerBytes);
                     recvRequest.header = recvHeader;
                 }
-
-                //if (headerBytes.Length != HEADER_SIZE && headerBytes[0] == byte.MaxValue)
-
                 recvHeader = BytesToHeader(headerBytes);
                 recvRequest.header = recvHeader;
 
-                // get DATA
+                //========================get DATA==============================
                 byte[] dataBytes = getBytes(recvHeader.size);
                 if (null == dataBytes)
                     break;
                 recvRequest.data = dataBytes;
 
+                //=================Process Request/Get Response=================
                 if (debug) //Receive endpoint
                     Console.WriteLine("\n[Server] {0}:{1}", remoteHost, remotePort);
 
@@ -77,6 +72,7 @@ namespace IrccServer
                         Console.WriteLine("^[Client] {0}:{1}", ((IPEndPoint)surrogateClient.So.RemoteEndPoint).Address.ToString(), ((IPEndPoint)surrogateClient.So.RemoteEndPoint).Port.ToString());
                 }
 
+                //=======================Send Response==========================
                 if (-1 != respPacket.header.comm)
                 {
                     byte[] respBytes = PacketToBytes(respPacket);
@@ -93,12 +89,14 @@ namespace IrccServer
                     }
                 }
 
+                //=======================Check Connection=======================
                 if (!isConnected())
                 {
                     Console.WriteLine("Connection lost with {0}:{1}", remoteHost, remotePort);
                     break;
                 }
             }
+            //=================Close Connection/Exit Thread=====================
             Console.WriteLine("Closing connection with {0}:{1}", remoteHost, remotePort);
             so.Shutdown(SocketShutdown.Both);
             so.Close();
@@ -109,36 +107,6 @@ namespace IrccServer
         {
             byte[] respBytes = PacketToBytes(p);
             return sendBytes(respBytes);
-        }
-
-        public Packet Receive()
-        {
-            // Receive
-            Header recvHeader;
-            Packet recvRequest = new Packet();
-
-            // get HEADER
-            byte[] headerBytes = getBytes(HEADER_SIZE);
-            if (null == headerBytes)
-                return recvRequest;
-            else
-            {
-                recvHeader = BytesToHeader(headerBytes);
-                recvRequest.header = recvHeader;
-            }
-
-            //if (headerBytes.Length != HEADER_SIZE && headerBytes[0] == byte.MaxValue)
-
-            recvHeader = BytesToHeader(headerBytes);
-            recvRequest.header = recvHeader;
-
-            // get DATA
-            byte[] dataBytes = getBytes(recvHeader.size);
-            if (null == dataBytes)
-                return recvRequest;
-            recvRequest.data = dataBytes;
-
-            return recvRequest;
         }
 
         public void EchoSend(Packet echoPacket)

@@ -48,7 +48,6 @@ namespace IrccServer
             this.status = State.Online;
             Thread chThread = new Thread(() => start(redis));
             chThread.Start();
-            //chThread.Abort();
         }
 
         private void start(RedisHelper redis)
@@ -59,29 +58,21 @@ namespace IrccServer
 
             for (;;)
             {
-                // Receive
+                //=========================Receive==============================
                 Header recvHeader;
                 Packet recvRequest;
 
-                // get HEADER
+                //========================get HEADER============================
                 byte[] headerBytes = getBytes(HEADER_SIZE);
                 if (null == headerBytes)
                 {
                     signout();               
                     break;
                 }
-                else
-                {
-                    recvHeader = BytesToHeader(headerBytes);
-                    recvRequest.header = recvHeader;
-                }
-
-                //if (headerBytes.Length != HEADER_SIZE && headerBytes[0] == byte.MaxValue)
-                    
                 recvHeader = BytesToHeader(headerBytes);
                 recvRequest.header = recvHeader;
 
-                // get DATA
+                //========================get DATA==============================
                 byte[] dataBytes = getBytes(recvHeader.size);
                 if (null == dataBytes)
                 {
@@ -90,7 +81,8 @@ namespace IrccServer
                 }
                 recvRequest.data = dataBytes;
 
-                if (debug)
+                //=================Process Request/Get Response=================
+                if (debug) //Receive endpoint
                     Console.WriteLine("\n[Client] {0}:{1}", remoteHost, remotePort);
 
                 ClientHandle surrogateClient;
@@ -100,6 +92,7 @@ namespace IrccServer
                 if (debug) //Send endpoint
                     Console.WriteLine("^[Client] {0}:{1}", remoteHost, remotePort);
 
+                //=======================Send Response==========================
                 if (-1 != respPacket.header.comm)
                 {
                     byte[] respBytes = PacketToBytes(respPacket);
@@ -111,12 +104,14 @@ namespace IrccServer
                     }
                 }
 
+                //=======================Check Connection=======================
                 if (!isConnected())
                 {
                     Console.WriteLine("Connection lost with {0}:{1}", remoteHost, remotePort);
                     break;
                 }
             }
+            //=================Close Connection/Exit Thread=====================
             Console.WriteLine("Closing connection with {0}:{1}", remoteHost, remotePort);
             so.Shutdown(SocketShutdown.Both);
             so.Close();
@@ -158,8 +153,8 @@ namespace IrccServer
                 so.ReceiveTimeout = 60000;
                 bytecount = so.Receive(bytes);
 
-                //assumes that the line above will throw exception 
-                //if timeout, so the line below will not be reached
+                //assumes that the line above(so.Receive) will throw exception 
+                //if times out, so the line below(reset hearbeatMiss) will not be reached
                 //if an exception is thrown.
                 heartbeatMiss = 0;
             }
