@@ -45,6 +45,7 @@ namespace IrccServer
         {
             so = s;
             this.redis = redis;
+            this.status = State.Online;
             Thread chThread = new Thread(() => start(redis));
             chThread.Start();
             //chThread.Abort();
@@ -140,9 +141,12 @@ namespace IrccServer
 
         private void signout()
         {
-            redis.SignOut(this.userId);
-            ReceiveHandler.RemoveClient(this);
-            this.roomId = 0;
+            if (status == State.Lobby || status == State.Room)
+            {
+                redis.SignOut(this.userId);
+                ReceiveHandler.RemoveClient(this);
+                this.roomId = 0;
+            }
             this.status = State.Offline;
         }
 
