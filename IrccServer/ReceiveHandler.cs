@@ -361,9 +361,12 @@ namespace IrccServer
             Room requestedRoom;
 
             //TODO: update user chat count. make it so that it increments value in redis
-            client.ChatCount++;
-            redis.IncrementUserChatCount(client.UserId);
-            client.ChatCount = 0;
+            if (!client.IsDummy)
+            {
+                client.ChatCount++;
+                redis.IncrementUserChatCount(client.UserId);
+                client.ChatCount = 0;
+            }
 
             lock (rooms)
             {
@@ -842,7 +845,7 @@ namespace IrccServer
             //=============================COMM CS==============================
             if (Comm.CS == recvPacket.header.comm)
             {
-                bool createAndJoin = false; //keep this! don't delete
+                bool createAndJoin = false; //keep this! don't delete (in case we want to Create and Join together)
 
                 switch (recvPacket.header.code)
                 {
