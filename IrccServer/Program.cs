@@ -71,7 +71,17 @@ namespace IrccServer
             //=====================CONNECT TO PEERS=============================
             Console.WriteLine("Connecting to other IRC servers...");
             string[] peerInfo = System.IO.File.ReadAllLines("peer_info.conf");
-            recvHandler.SetPeerServers(peerInfo);
+            bool havePeers = recvHandler.SetPeerServers(peerInfo);
+            if (!havePeers)
+            {
+                bool success = redis.Reset();
+                if (!success)
+                {
+                    Console.WriteLine("Redis reinitialize failed. Exiting...");
+                    Environment.Exit(0);
+                }
+            }
+            
 
             //================SERVER/CLIENT SOCKET ACCEPT=======================
             //thread for accepting clients

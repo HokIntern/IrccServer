@@ -44,8 +44,9 @@ namespace IrccServer
             this.recvPacket = recvPacket;
         }
 
-        public void SetPeerServers(string[] peerInfo)
+        public bool SetPeerServers(string[] peerInfo)
         {
+            bool havePeers = false;
             foreach (string peerAddress in peerInfo)
             {
                 Socket so = ConnectToPeer(peerAddress);
@@ -53,8 +54,11 @@ namespace IrccServer
                 {
                     ServerHandle peer = new ServerHandle(so);
                     AddPeerServer(peer);
+                    havePeers = true;
                 }
             }
+
+            return havePeers;
         }
 
         public void AddPeerServer(ServerHandle peer)
@@ -368,8 +372,6 @@ namespace IrccServer
                             else
                                 pairBytes = Encoding.UTF8.GetBytes(pair);
                             
-                            if (debug)
-                                Console.WriteLine("=============list  " + Encoding.UTF8.GetString(pairBytes));
                             Array.Copy(pairBytes, 0, listBytes, prev, pairBytes.Length);
                             prev += pairBytes.Length;
                         }
@@ -384,6 +386,25 @@ namespace IrccServer
                         //FE -> CL side
                         break;
 
+                    case Code.MLIST:
+                        //MCL -> FE side
+                        int currentRoomCount = rooms.Count;
+                        int currentUserCount = lobbyClients.Count;
+
+                        if (0 > currentRoomCount || 0 > currentUserCount)
+                        {
+                            returnHeader = new Header(Comm.CS, Code.MLIST_ERR, 0);
+                            returnData = null;
+                        }
+                        else
+                        {
+                            byte[] roomBytes = BitConverter.GetBytes(currentRoomCount);
+                            byte[] userBytes = BitConverter.GetBytes(currentUserCount);
+                            returnData = new byte[8]; // int + int (8byte)
+                            returnHeader = new Header(Comm.CS, Code.MLIST_RES, returnData.Length, recvPacket.header.sequence);
+                            returnData = roomBytes.Concat(userBytes).ToArray();
+                        }
+                        break;
 
                     //------------MSG------------
                     case Code.MSG:
@@ -784,8 +805,6 @@ namespace IrccServer
                             else
                                 pairBytes = Encoding.UTF8.GetBytes(pair);
 
-                            if (debug)
-                                Console.WriteLine("=============list  " + Encoding.UTF8.GetString(pairBytes));
                             Array.Copy(pairBytes, 0, listBytes, prev, pairBytes.Length);
                             prev += pairBytes.Length;
                         }
