@@ -28,6 +28,7 @@ namespace IrccServer
             lobbyClients = new Dictionary<long, ClientHandle>();
             peerServers = new List<ServerHandle>();
             rooms = new Dictionary<long, Room>();
+            peerRespWait = new Dictionary<long, int[]>();
         }
 
         public ReceiveHandler(ClientHandle client, Packet recvPacket, RedisHelper redis)
@@ -211,11 +212,6 @@ namespace IrccServer
                                 Header sreqHeader = new Header(Comm.SS, Code.SJOIN, sreqData.Length, (short)peerServers.Count);
                                 Packet sreqPacket = new Packet(sreqHeader, sreqData);
 
-                                //put user into peerRespWait so when peer response arrives
-                                //there is a way to check if room doesn't exist.
-                                lock(peerRespWait)
-                                    peerRespWait.Add(client.UserId, new int[] { peerServers.Count, 0, 0 });
-
                                 if (peerServers.Count == 0)
                                 {
                                     returnHeader = new Header(Comm.CS, Code.JOIN_NULL_ERR, 0);
@@ -223,17 +219,22 @@ namespace IrccServer
                                 }
                                 else
                                 {
+                                    //put user into peerRespWait so when peer response arrives
+                                    //there is a way to check if room doesn't exist.
+                                    lock (peerRespWait)
+                                        peerRespWait.Add(client.UserId, new int[] { peerServers.Count, 0, 0 });
+
+                                    //room not in local server. check other servers
+                                    foreach (ServerHandle peer in peerServers)
+                                    {
+                                        bool success = peer.Send(sreqPacket);
+
+                                        if (!success)
+                                            Console.WriteLine("ERROR: SJOIN send failed");
+                                    }
+
                                     returnHeader = NoResponseHeader;
                                     returnData = null;
-                                }
-
-                                //room not in local server. check other servers
-                                foreach (ServerHandle peer in peerServers)
-                                {
-                                    bool success = peer.Send(sreqPacket);
-
-                                    if (!success)
-                                        Console.WriteLine("ERROR: SJOIN send failed");
                                 }
                             }
                             else
@@ -358,9 +359,15 @@ namespace IrccServer
 
                         byte[] listBytes = new byte[length];
                         int prev = 0;
-                        foreach (string pair in pairArr)
+                        for (int j = 0; j < pairArr.Length; j++)
                         {
-                            byte[] pairBytes = Encoding.UTF8.GetBytes(pair);
+                            byte[] pairBytes;
+                            string pair = pairArr[j];
+                            if (j == pairArr.Length - 1)
+                                pairBytes = Encoding.UTF8.GetBytes(pair.Substring(0, pair.Length - 1)); //remove the last semicolon
+                            else
+                                pairBytes = Encoding.UTF8.GetBytes(pair);
+                            
                             if (debug)
                                 Console.WriteLine("=============list  " + Encoding.UTF8.GetString(pairBytes));
                             Array.Copy(pairBytes, 0, listBytes, prev, pairBytes.Length);
