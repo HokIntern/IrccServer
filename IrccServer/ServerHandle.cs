@@ -108,12 +108,6 @@ namespace IrccServer
                 string remoteHost = ((IPEndPoint)so.RemoteEndPoint).Address.ToString();
                 string remotePort = ((IPEndPoint)so.RemoteEndPoint).Port.ToString();
                 Console.WriteLine("FAIL: Relay message to server {0}:{1} failed", remoteHost, remotePort);
-                /*
-                Console.WriteLine("Closing connection with {0}:{1}", remoteHost, remotePort);
-                so.Shutdown(SocketShutdown.Both);
-                so.Close();
-                Console.WriteLine("Connection closed\n");
-                */
             }
         }
 

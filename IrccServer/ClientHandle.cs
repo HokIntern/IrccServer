@@ -38,7 +38,7 @@ namespace IrccServer
 
         public enum State
         {
-            Online, Offline, Lobby, Room, Monitoring, Error
+            Offline, Online, Lobby, Room, Monitoring, Error
         }
 
         public ClientHandle(Socket s, RedisHelper redis)
@@ -116,12 +116,6 @@ namespace IrccServer
             if (!echoSuccess)
             {
                 Console.WriteLine("FAIL: Relay message to client {0} failed", userId);
-                /*
-                Console.WriteLine("Closing connection with {0}:{1}", remoteHost, remotePort);
-                so.Shutdown(SocketShutdown.Both);
-                so.Close();
-                Console.WriteLine("Connection closed\n");
-                */
             }
         }
 

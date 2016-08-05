@@ -48,12 +48,12 @@ namespace IrccServer
             this.recvPacket = recvPacket;
         }
 
-        public bool SetPeerServers(string[] peerInfo)
+        public bool SetPeerServers(string[] peerInfo, string thisServerPort)
         {
             bool havePeers = false;
             foreach (string peerAddress in peerInfo)
             {
-                Socket so = ConnectToPeer(peerAddress);
+                Socket so = ConnectToPeer(peerAddress, thisServerPort);
                 if (null != so)
                 {
                     ServerHandle peer = new ServerHandle(so);
@@ -99,6 +99,12 @@ namespace IrccServer
             {
                 if (!peerServers.Remove(server))
                     Console.WriteLine("ERROR: REMOVESERVER - server was already removed");
+            }
+
+            lock(rooms)
+            {
+                foreach (KeyValuePair<long, Room> room in rooms)
+                    room.Value.RemoveServer(server);
             }
         }
         //==============================================CREATE 700===============================================
@@ -1161,35 +1167,41 @@ namespace IrccServer
             return result;
         }
 
-        private Socket ConnectToPeer(string info)
+        private Socket ConnectToPeer(string info, string thisServerPort)
         {
-            string host;
-            int port;
-
             string[] hostport = info.Split(':');
-            host = hostport[0];
-            if (!int.TryParse(hostport[1], out port))
-            {
-                Console.Error.WriteLine("port must be int. given: {0}", hostport[1]);
-                Environment.Exit(0);
-            }
 
-            Socket so = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            IPAddress ipAddress = IPAddress.Parse(host);
-            Console.WriteLine("[Server] Establishing connection to {0}:{1} ...", host, port);
-
-            try
-            {
-                so.Connect(ipAddress, port);
-                //Console.WriteLine("[Server] Connection established.\n");
-            }
-            catch(Exception)
-            {
-                Console.WriteLine("Peer is not alive.");
+            if ("127.0.0.1" == hostport[0] && thisServerPort == hostport[1]) //if its trying to connect to itself
                 return null;
-            }
+            else
+            {
+                string host;
+                int port;
 
-            return so;
+                host = hostport[0];
+                if (!int.TryParse(hostport[1], out port))
+                {
+                    Console.Error.WriteLine("port must be int. given: {0}", hostport[1]);
+                    Environment.Exit(0);
+                }
+
+                Socket so = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                IPAddress ipAddress = IPAddress.Parse(host);
+                Console.WriteLine("[Server] Establishing connection to {0}:{1} ...", host, port);
+
+                try
+                {
+                    so.Connect(ipAddress, port);
+                    //Console.WriteLine("[Server] Connection established.\n");
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine("Peer is not alive.");
+                    return null;
+                }
+
+                return so;
+            }
         }
     }
 }

@@ -71,7 +71,7 @@ namespace IrccServer
             //=====================CONNECT TO PEERS=============================
             Console.WriteLine("Connecting to other IRC servers...");
             string[] peerInfo = System.IO.File.ReadAllLines("peer_info.conf");
-            bool havePeers = recvHandler.SetPeerServers(peerInfo);
+            bool havePeers = recvHandler.SetPeerServers(peerInfo, serverPort);
             if (!havePeers)
             {
                 bool success = redis.Reset();
