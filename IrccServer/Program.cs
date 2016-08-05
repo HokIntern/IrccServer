@@ -55,7 +55,9 @@ namespace IrccServer
             //======================REDIS CONNECT===============================
             //string configString = "10.100.58.5:26379,keepAlive=180";
             Console.WriteLine("Connecting to Redis...");
-            string configString = System.IO.File.ReadAllText("redis.conf");
+            string configString = "";
+            try { configString = System.IO.File.ReadAllText("redis.conf"); }
+            catch (Exception e) { Console.WriteLine("\n" + e.Message); Environment.Exit(0); }
             ConfigurationOptions configOptions = ConfigurationOptions.Parse(configString);
             RedisHelper redis = new RedisHelper(configOptions);
             if(!redis.IsConnected())
@@ -70,7 +72,9 @@ namespace IrccServer
 
             //=====================CONNECT TO PEERS=============================
             Console.WriteLine("Connecting to other IRC servers...");
-            string[] peerInfo = System.IO.File.ReadAllLines("peer_info.conf");
+            string[] peerInfo = null;
+            try { peerInfo = System.IO.File.ReadAllLines("peer_info.conf"); }
+            catch (Exception e) { Console.WriteLine("\n" + e.Message); Environment.Exit(0); }
             bool havePeers = recvHandler.SetPeerServers(peerInfo, serverPort);
             if (!havePeers)
             {
