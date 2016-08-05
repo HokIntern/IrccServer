@@ -38,7 +38,7 @@ namespace IrccServer
 
         public enum State
         {
-            Online, Offline, Lobby, Room, Error
+            Online, Offline, Lobby, Room, Monitoring, Error
         }
 
         public ClientHandle(Socket s, RedisHelper redis)
@@ -64,33 +64,21 @@ namespace IrccServer
 
                 //========================get HEADER============================
                 byte[] headerBytes = getBytes(HEADER_SIZE);
-                if (null == headerBytes)
-                {
-                    signout();               
+                if (null == headerBytes)              
                     break;
-                }
                 recvHeader = BytesToHeader(headerBytes);
                 recvRequest.header = recvHeader;
 
                 //========================get DATA==============================
                 byte[] dataBytes = getBytes(recvHeader.size);
                 if (null == dataBytes)
-                {
-                    signout();
                     break;
-                }
                 recvRequest.data = dataBytes;
 
                 //=================Process Request/Get Response=================
-                if (debug) //Receive endpoint
-                    Console.WriteLine("\n[Client] {0}:{1}", remoteHost, remotePort);
-
                 ClientHandle surrogateClient;
                 recvHandler = new ReceiveHandler(this, recvRequest, redis);
                 Packet respPacket = recvHandler.GetResponse(out surrogateClient);
-
-                if (debug) //Send endpoint
-                    Console.WriteLine("^[Client] {0}:{1}", remoteHost, remotePort);
 
                 //=======================Send Response==========================
                 if (-1 != respPacket.header.comm)
@@ -111,7 +99,8 @@ namespace IrccServer
                     break;
                 }
             }
-            //=================Close Connection/Exit Thread=====================
+            //=================Signout/Close Connection/Exit Thread==================
+            signout();
             Console.WriteLine("Closing connection with {0}:{1}", remoteHost, remotePort);
             so.Shutdown(SocketShutdown.Both);
             so.Close();
@@ -154,7 +143,7 @@ namespace IrccServer
             {
                 try
                 {
-                    so.ReceiveTimeout = 30000;
+                    so.ReceiveTimeout = 90000;
                     bytecount = so.Receive(bytes);
 
                     //assumes that the line above(so.Receive) will throw exception 

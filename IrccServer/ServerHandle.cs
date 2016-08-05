@@ -19,6 +19,8 @@ namespace IrccServer
         Socket so;
         ReceiveHandler recvHandler;
 
+        public Socket So { get { return so; } }
+
         public ServerHandle(Socket s)
         {
             so = s;
@@ -59,20 +61,9 @@ namespace IrccServer
                 recvRequest.data = dataBytes;
 
                 //=================Process Request/Get Response=================
-                if (debug) //Receive endpoint
-                    Console.WriteLine("\n[Server] {0}:{1}", remoteHost, remotePort);
-
                 ClientHandle surrogateClient;
                 recvHandler = new ReceiveHandler(this, recvRequest);
                 Packet respPacket = recvHandler.GetResponse(out surrogateClient);
-
-                if (debug) //Send endpoint
-                {
-                    if (surrogateClient == null)
-                        Console.WriteLine("^[Server] {0}:{1}", remoteHost, remotePort);
-                    else
-                        Console.WriteLine("^[Client] {0}:{1}", ((IPEndPoint)surrogateClient.So.RemoteEndPoint).Address.ToString(), ((IPEndPoint)surrogateClient.So.RemoteEndPoint).Port.ToString());
-                }
 
                 //=======================Send Response==========================
                 if (-1 != respPacket.header.comm)

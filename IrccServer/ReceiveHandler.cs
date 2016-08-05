@@ -13,6 +13,7 @@ namespace IrccServer
 {
     class ReceiveHandler
     {
+        string accessor;
         ClientHandle client;
         ServerHandle server;
         Packet recvPacket;
@@ -34,6 +35,7 @@ namespace IrccServer
 
         public ReceiveHandler(ClientHandle client, Packet recvPacket, RedisHelper redis)
         {
+            this.accessor = "client";
             this.client = client;
             this.recvPacket = recvPacket;
             this.redis = redis;
@@ -41,6 +43,7 @@ namespace IrccServer
 
         public ReceiveHandler(ServerHandle server, Packet recvPacket)
         {
+            this.accessor = "server";
             this.server = server;
             this.recvPacket = recvPacket;
         }
@@ -337,9 +340,11 @@ namespace IrccServer
             Packet response;
             Header returnHeader;
             byte[] returnData;
+            client.Status = ClientHandle.State.Monitoring;
 
             int currentRoomCount = rooms.Count;
             int currentUserCount = lobbyClients.Count;
+            List<long> roomIdList = new List<long>();
 
             if (0 > currentRoomCount || 0 > currentUserCount)
             {
@@ -348,11 +353,20 @@ namespace IrccServer
             }
             else
             {
-                byte[] roomBytes = BitConverter.GetBytes(currentRoomCount);
+                // Get roomId of current room
+                foreach (KeyValuePair<long, Room> pair in rooms)
+                    roomIdList.Add(pair.Key);
+
+                byte[] roomBytes = null;
                 byte[] userBytes = BitConverter.GetBytes(currentUserCount);
-                returnData = new byte[8]; // int + int (8byte)
+
+                // list<long> to byte
+                foreach (long id in roomIdList)
+                    roomBytes = roomBytes.Concat(BitConverter.GetBytes(id)).ToArray();
+
+                // returnData = new byte[ sizeof(int) + (roomIdList.Count * 8) ]
+                returnData = userBytes.Concat(roomBytes).ToArray();
                 returnHeader = new Header(Comm.CS, Code.MLIST_RES, returnData.Length, recvPacket.header.sequence);
-                returnData = roomBytes.Concat(userBytes).ToArray();
             }
 
             response = new Packet(returnHeader, returnData);
@@ -587,6 +601,7 @@ namespace IrccServer
             string recvRoomname;
             byte[] roomIdBytes;
             byte[] roomnameBytes;
+            bool clientInLobby = true;
 
             //need to get 'client' because this function will return to
             //a ServerHandle instance, which will have a SS socket
@@ -602,19 +617,15 @@ namespace IrccServer
             {
                 if (!lobbyClients.TryGetValue(userId, out client))
                 {
-                    Console.WriteLine("ERROR: SJOIN_RES - user no longer exists");
-                    returnHeader = NoResponseHeader;
-                    returnData = null;
-                    surrogateCandidate = null;
-
-                    response = new Packet(returnHeader, returnData);
-                    return response;
+                    //Console.WriteLine("ERROR: SJOIN_RES - user no longer exists");
+                    clientInLobby = false;
                 }
             }
 
             lock (rooms)
             {
-                if (!rooms.TryGetValue(recvRoomId, out requestedRoom))
+                bool roomExists = rooms.TryGetValue(recvRoomId, out requestedRoom);
+                if (clientInLobby && !roomExists)
                 {
                     //first SJOIN_RES from peer servers
                     Room newJoinRoom = new Room(recvRoomId, recvRoomname);
@@ -636,6 +647,7 @@ namespace IrccServer
                 else
                 {
                     //room already made by previous iteration
+                    //also, if clientInLobby == false, then add the server to the relay list
                     requestedRoom.AddServer(server);
 
                     //only the first SJOIN_RES will give the client a JOIN_RES response
@@ -648,22 +660,15 @@ namespace IrccServer
             lock (peerRespWait)
             {
                 int[] respProgress;
-                if (!peerRespWait.TryGetValue(client.UserId, out respProgress))
+                if (!peerRespWait.TryGetValue(userId, out respProgress))
                 {
                     Console.WriteLine("ERROR: SJOIN_RES - respProgress no longer exists");
                     returnHeader = NoResponseHeader;
                     returnData = null;
                 }
 
-                peerRespWait.Remove(client.UserId); //just remove client.user_id when first success is received
-                /*
-                respProgress[1]++; //increment progress
-                respProgress[2] = 1; //set join success to true
-                if (respProgress[0] == respProgress[1])
-                    peerRespWait.Remove(client.UserId);
-                */
+                peerRespWait.Remove(userId); //just remove client.user_id when first success is received
             }
-
             //room exists in other peer irc servers
             //created one in local and connected with peers
             surrogateCandidate = client;
@@ -707,7 +712,7 @@ namespace IrccServer
             lock (peerRespWait)
             {
                 int[] respProgress;
-                if (!peerRespWait.TryGetValue(client.UserId, out respProgress))
+                if (!peerRespWait.TryGetValue(userId, out respProgress))
                 {
                     //respProgress no longer exists because success was sent and the key was deleted.
                     returnHeader = NoResponseHeader;
@@ -722,7 +727,7 @@ namespace IrccServer
                 respProgress[2] = respProgress[2] == 1 ? 1 : 0; //set join success to true
                 if (respProgress[0] == respProgress[1] && respProgress[2] == 0)
                 {
-                    peerRespWait.Remove(client.UserId);
+                    peerRespWait.Remove(userId);
                     returnHeader = new Header(Comm.CS, Code.JOIN_NULL_ERR, 0);
                     returnData = null;
                 }
@@ -860,10 +865,29 @@ namespace IrccServer
             Packet responsePacket = new Packet();
             ClientHandle surrogateCandidate = null; //null is default
 
+            string remoteHost = "";
+            string remotePort = "";
+
             bool debug = true;
 
-            if(debug && recvPacket.header.code != Code.HEARTBEAT  && recvPacket.header.code != Code.HEARTBEAT_RES && recvPacket.header.code != -1)
+            if (debug && recvPacket.header.code != Code.HEARTBEAT && recvPacket.header.code != Code.HEARTBEAT_RES && recvPacket.header.code != Code.MLIST && recvPacket.header.code != -1)
+            {
+                if("client" == accessor)
+                {
+                    remoteHost = ((IPEndPoint)client.So.RemoteEndPoint).Address.ToString();
+                    remotePort = ((IPEndPoint)client.So.RemoteEndPoint).Port.ToString();
+                    Console.WriteLine("\n[Client] {0}:{1}", remoteHost, remotePort);
+                }
+                else if("server" == accessor)
+                {
+                    remoteHost = ((IPEndPoint)server.So.RemoteEndPoint).Address.ToString();
+                    remotePort = ((IPEndPoint)server.So.RemoteEndPoint).Port.ToString();
+                    Console.WriteLine("\n[Server] {0}:{1}", remoteHost, remotePort);
+                }
+                else
+                    Console.WriteLine("ERROR: RECVHANDLER - accessor is not set");
                 Console.WriteLine("==RECEIVED: \n" + PacketDebug(recvPacket));
+            }
 
             //=============================COMM CS==============================
             if (Comm.CS == recvPacket.header.comm)
@@ -1045,8 +1069,25 @@ namespace IrccServer
             }
 
             //===============Build Response/Set Surrogate/Return================
-            if (debug && responsePacket.header.comm != -1 && responsePacket.header.code != Code.HEARTBEAT && responsePacket.header.code != Code.HEARTBEAT_RES)
+            if (debug && responsePacket.header.comm != -1 && responsePacket.header.code != Code.HEARTBEAT && responsePacket.header.code != Code.HEARTBEAT_RES && recvPacket.header.code != Code.MLIST_RES && recvPacket.header.code != Code.MLIST_ERR)
+            {
                 Console.WriteLine("==SEND: \n" + PacketDebug(responsePacket));
+                if ("client" == accessor)
+                    Console.WriteLine("^[Client] {0}:{1}", remoteHost, remotePort);
+                else if ("server" == accessor)
+                {
+                    if(null == surrogateCandidate)
+                        Console.WriteLine("^[Server] {0}:{1}", remoteHost, remotePort);
+                    else
+                    {
+                        remoteHost = ((IPEndPoint)surrogateCandidate.So.RemoteEndPoint).Address.ToString();
+                        remotePort = ((IPEndPoint)surrogateCandidate.So.RemoteEndPoint).Port.ToString();
+                        Console.WriteLine("^[Client] {0}:{1}", remoteHost, remotePort);
+                    }
+                }
+                else
+                    Console.WriteLine("ERROR: RECVHANDLER - accessor is not set");
+            }
 
             surrogateClient = surrogateCandidate;
             return responsePacket;
@@ -1123,7 +1164,7 @@ namespace IrccServer
                 so.Connect(ipAddress, port);
                 //Console.WriteLine("[Server] Connection established.\n");
             }
-            catch(Exception e)
+            catch(Exception)
             {
                 Console.WriteLine("Peer is not alive.");
                 return null;
