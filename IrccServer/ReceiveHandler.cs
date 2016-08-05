@@ -322,35 +322,7 @@ namespace IrccServer
                     peerServerCount++;
             }
 
-            string[] pairArr = new string[rooms.Count];
-            int length = 0;
-            int i = 0;
-            lock (rooms)
-            {
-                foreach (KeyValuePair<long, Room> entry in rooms)
-                {
-                    string pair = entry.Key + ":" + entry.Value.Roomname + ";";
-                    pairArr[i] = pair;
-                    i++;
-                    length += Encoding.UTF8.GetByteCount(pair);
-                }
-            }
-
-            byte[] listBytes = new byte[length];
-            int prev = 0;
-            for (int j = 0; j < pairArr.Length; j++)
-            {
-                byte[] pairBytes;
-                string pair = pairArr[j];
-                if (j == pairArr.Length - 1)
-                    pairBytes = Encoding.UTF8.GetBytes(pair.Substring(0, pair.Length - 1)); //remove the last semicolon
-                else
-                    pairBytes = Encoding.UTF8.GetBytes(pair);
-
-                Array.Copy(pairBytes, 0, listBytes, prev, pairBytes.Length);
-                prev += pairBytes.Length;
-            }
-
+            byte[] listBytes = GetRoomBytes();
             returnHeader = new Header(Comm.CS, Code.LIST_RES, listBytes.Length, (short)peerServerCount);
             returnData = listBytes;
 
@@ -804,36 +776,10 @@ namespace IrccServer
             Header returnHeader;
             byte[] returnData;
 
-            string[] pairArr = new string[rooms.Count];
-            int length = 0;
-            int i = 0;
-            lock (rooms)
-            {
-                foreach (KeyValuePair<long, Room> entry in rooms)
-                {
-                    string pair = entry.Key + ":" + entry.Value.Roomname + ";";
-                    pairArr[i] = pair;
-                    i++;
-                    length += Encoding.UTF8.GetByteCount(pair);
-                }
-            }
-            //userId is in recvPacket.data. need to forward it back so that
-            //the receiver knows which connection needs to receive the response
-            byte[] listBytes = new byte[length + recvPacket.data.Length];
+            byte[] roomBytes = GetRoomBytes();
+            byte[] listBytes = new byte[roomBytes.Length + recvPacket.data.Length];
             Array.Copy(recvPacket.data, 0, listBytes, 0, recvPacket.data.Length);
-            int prev = recvPacket.data.Length;
-            for (int j = 0; j < pairArr.Length; j++)
-            {
-                byte[] pairBytes;
-                string pair = pairArr[j];
-                if (j == pairArr.Length - 1)
-                    pairBytes = Encoding.UTF8.GetBytes(pair.Substring(0, pair.Length - 1)); //remove the last semicolon
-                else
-                    pairBytes = Encoding.UTF8.GetBytes(pair);
-
-                Array.Copy(pairBytes, 0, listBytes, prev, pairBytes.Length);
-                prev += pairBytes.Length;
-            }
+            Array.Copy(roomBytes, 0, listBytes, recvPacket.data.Length, roomBytes.Length);
 
             returnHeader = new Header(Comm.SS, Code.SLIST_RES, listBytes.Length, recvPacket.header.sequence);
             returnData = listBytes;
@@ -1104,6 +1050,40 @@ namespace IrccServer
 
             surrogateClient = surrogateCandidate;
             return responsePacket;
+        }
+
+        private byte[] GetRoomBytes()
+        {
+            string[] pairArr = new string[rooms.Count];
+            int length = 0;
+            int i = 0;
+            lock (rooms)
+            {
+                foreach (KeyValuePair<long, Room> entry in rooms)
+                {
+                    string pair = entry.Key + ":" + entry.Value.Roomname + ";";
+                    pairArr[i] = pair;
+                    i++;
+                    length += Encoding.UTF8.GetByteCount(pair);
+                }
+            }
+
+            byte[] listBytes = new byte[length];
+            int prev = 0;
+            for (int j = 0; j < pairArr.Length; j++)
+            {
+                byte[] pairBytes;
+                string pair = pairArr[j];
+                if (j == pairArr.Length - 1)
+                    pairBytes = Encoding.UTF8.GetBytes(pair.Substring(0, pair.Length - 1)); //remove the last semicolon
+                else
+                    pairBytes = Encoding.UTF8.GetBytes(pair);
+
+                Array.Copy(pairBytes, 0, listBytes, prev, pairBytes.Length);
+                prev += pairBytes.Length;
+            }
+
+            return listBytes;
         }
         
         private long ToInt64(byte[] bytes, int startIndex)
