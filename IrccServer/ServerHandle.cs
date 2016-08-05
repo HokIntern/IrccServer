@@ -44,20 +44,14 @@ namespace IrccServer
                 //========================get HEADER============================
                 byte[] headerBytes = getBytes(HEADER_SIZE);
                 if (null == headerBytes)
-                {
-                    ReceiveHandler.RemoveServer(this);
                     break;
-                }
                 recvHeader = BytesToHeader(headerBytes);
                 recvRequest.header = recvHeader;
 
                 //========================get DATA==============================
                 byte[] dataBytes = getBytes(recvHeader.size);
                 if (null == dataBytes)
-                {
-                    ReceiveHandler.RemoveServer(this);
                     break;
-                }
                 recvRequest.data = dataBytes;
 
                 //=================Process Request/Get Response=================
@@ -89,7 +83,8 @@ namespace IrccServer
                     break;
                 }
             }
-            //=================Close Connection/Exit Thread=====================
+            //=================RemoveServer/Close Connection/Exit Thread=================
+            ReceiveHandler.RemoveServer(this);
             Console.WriteLine("Closing connection with {0}:{1}", remoteHost, remotePort);
             so.Shutdown(SocketShutdown.Both);
             so.Close();

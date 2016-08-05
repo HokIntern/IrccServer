@@ -143,7 +143,7 @@ namespace IrccServer
             {
                 try
                 {
-                    so.ReceiveTimeout = 90000;
+                    so.ReceiveTimeout = 120000;
                     bytecount = so.Receive(bytes);
 
                     //assumes that the line above(so.Receive) will throw exception 

@@ -346,6 +346,7 @@ namespace IrccServer
             int currentUserCount = lobbyClients.Count;
             List<long> roomIdList = new List<long>();
 
+
             if (0 > currentRoomCount || 0 > currentUserCount)
             {
                 returnHeader = new Header(Comm.CS, Code.MLIST_ERR, 0);
@@ -354,19 +355,37 @@ namespace IrccServer
             else
             {
                 // Get roomId of current room
-                foreach (KeyValuePair<long, Room> pair in rooms)
-                    roomIdList.Add(pair.Key);
 
-                byte[] roomBytes = null;
+                if (0 != rooms.Count)
+                {
+                    foreach (KeyValuePair<long, Room> pair in rooms)
+                        roomIdList.Add(pair.Key);
+                }
+                else roomIdList.Clear();
+
+
+                byte[] roomBytes = new byte[0];
                 byte[] userBytes = BitConverter.GetBytes(currentUserCount);
 
                 // list<long> to byte
-                foreach (long id in roomIdList)
-                    roomBytes = roomBytes.Concat(BitConverter.GetBytes(id)).ToArray();
+                if (0 != roomIdList.Count)
+                {
+                    foreach (long id in roomIdList)
+                        roomBytes = roomBytes.Concat(BitConverter.GetBytes(id)).ToArray();
+                }
+                else roomBytes = BitConverter.GetBytes((long)0);
 
-                // returnData = new byte[ sizeof(int) + (roomIdList.Count * 8) ]
-                returnData = userBytes.Concat(roomBytes).ToArray();
+                // returnData = new byte[ 4 + (8 * roomIdList.Count) ]
+                returnData = new byte[userBytes.Length + roomBytes.Length];
                 returnHeader = new Header(Comm.CS, Code.MLIST_RES, returnData.Length, recvPacket.header.sequence);
+
+                if (userBytes != null || roomBytes != null)
+                    returnData = userBytes.Concat(roomBytes).ToArray();
+                else
+                {
+                    returnHeader = new Header(Comm.CS, Code.MLIST_ERR, 0);
+                    returnData = null;
+                }
             }
 
             response = new Packet(returnHeader, returnData);
@@ -1069,7 +1088,7 @@ namespace IrccServer
             }
 
             //===============Build Response/Set Surrogate/Return================
-            if (debug && responsePacket.header.comm != -1 && responsePacket.header.code != Code.HEARTBEAT && responsePacket.header.code != Code.HEARTBEAT_RES && recvPacket.header.code != Code.MLIST_RES && recvPacket.header.code != Code.MLIST_ERR)
+            if (debug && responsePacket.header.comm != -1 && responsePacket.header.code != Code.HEARTBEAT && responsePacket.header.code != Code.HEARTBEAT_RES && responsePacket.header.code != Code.MLIST_RES && responsePacket.header.code != Code.MLIST_ERR)
             {
                 Console.WriteLine("==SEND: \n" + PacketDebug(responsePacket));
                 if ("client" == accessor)
