@@ -14,6 +14,7 @@ namespace IrccServer
     class ServerHandle
     {
         bool debug = true;
+        int heartbeatMiss = 0;
 
         Socket so;
         ReceiveHandler recvHandler;
@@ -41,11 +42,9 @@ namespace IrccServer
                 //========================get HEADER============================
                 byte[] headerBytes = getBytes(HEADER_SIZE);
                 if (null == headerBytes)
-                    break;
-                else
                 {
-                    recvHeader = BytesToHeader(headerBytes);
-                    recvRequest.header = recvHeader;
+                    ReceiveHandler.RemoveServer(this);
+                    break;
                 }
                 recvHeader = BytesToHeader(headerBytes);
                 recvRequest.header = recvHeader;
@@ -53,7 +52,10 @@ namespace IrccServer
                 //========================get DATA==============================
                 byte[] dataBytes = getBytes(recvHeader.size);
                 if (null == dataBytes)
+                {
+                    ReceiveHandler.RemoveServer(this);
                     break;
+                }
                 recvRequest.data = dataBytes;
 
                 //=================Process Request/Get Response=================
@@ -132,30 +134,42 @@ namespace IrccServer
         private byte[] getBytes(int length)
         {
             byte[] bytes = new byte[length];
-            try
+            if (length != 0) //this check has to exist. otherwise Receive timeouts for 60seconds while waiting for nothing
             {
-                so.ReceiveTimeout = 10000;
-                int bytecount = so.Receive(bytes);
-            }
-            catch (Exception e)
-            {
-                if (!isConnected())
+                try
                 {
-                    Console.WriteLine("\n" + e.Message);
-                    return null;
+                    so.ReceiveTimeout = 10000;
+                    int bytecount = so.Receive(bytes);
+
+                    //assumes that the line above(so.Receive) will throw exception 
+                    //if times out, so the line below(reset hearbeatMiss) will not be reached
+                    //if an exception is thrown.
+                    heartbeatMiss = 0;
                 }
-                else
+                catch (Exception e)
                 {
-                    if (bytes.Length != 0)
+                    if (!isConnected())
                     {
-                        //puts Comm.SS into 1st and 2nd bytes (COMM)
-                        byte[] noRespBytes = BitConverter.GetBytes(Comm.SS);
-                        bytes[0] = noRespBytes[0];
-                        bytes[1] = noRespBytes[1];
-                        //puts -1 bytes into 3rd and 4th bytes (CODE)
-                        noRespBytes = BitConverter.GetBytes((short)-1);
-                        bytes[2] = noRespBytes[0];
-                        bytes[3] = noRespBytes[1];
+                        Console.WriteLine("\n" + e.Message);
+                        return null;
+                    }
+                    else
+                    {
+                        if (bytes.Length != 0)
+                        {
+                            heartbeatMiss++;
+                            if (heartbeatMiss == 2)
+                                return null;
+
+                            //puts Comm.SS into 1st and 2nd bytes (COMM)
+                            byte[] noRespBytes = BitConverter.GetBytes(Comm.SS);
+                            bytes[0] = noRespBytes[0];
+                            bytes[1] = noRespBytes[1];
+                            //puts -1 bytes into 3rd and 4th bytes (CODE)
+                            noRespBytes = BitConverter.GetBytes((short)-1);
+                            bytes[2] = noRespBytes[0];
+                            bytes[3] = noRespBytes[1];
+                        }
                     }
                 }
             }

@@ -89,6 +89,18 @@ namespace IrccServer
             else
                 Console.WriteLine("ERROR: REMOVECLIENT - you messed up");
         }
+
+        public static void RemoveServer(ServerHandle server)
+        {
+            lock(peerServers)
+            {
+                if (!peerServers.Remove(server))
+                    Console.WriteLine("ERROR: REMOVESERVER - server was already removed");
+            }
+        }
+        //==============================================CREATE 700===============================================
+        //==============================================CREATE 700===============================================
+        //==============================================CREATE 700===============================================
         public Packet ResponseCreate(Packet recvPacket, RedisHelper redis)
         {
             Packet response;
@@ -127,6 +139,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //================================================JOIN 500===============================================
+        //================================================JOIN 500===============================================
+        //================================================JOIN 500===============================================
         public Packet ResponseJoin(Packet recvPacket, bool createAndJoin)
         {
             Packet response;
@@ -168,7 +183,12 @@ namespace IrccServer
                         //put user into peerRespWait so when peer response arrives
                         //there is a way to check if room doesn't exist.
                         lock (peerRespWait)
-                            peerRespWait.Add(client.UserId, new int[] { peerServers.Count, 0, 0 });
+                        {
+                            if (peerRespWait.ContainsKey(client.UserId))
+                                Console.WriteLine("ERROR: JOIN - client already exists in peerRespWait");
+                            else
+                                peerRespWait.Add(client.UserId, new int[] { peerServers.Count, 0, 0 });
+                        }
 
                         //room not in local server. check other servers
                         foreach (ServerHandle peer in peerServers)
@@ -199,6 +219,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //==============================================LEAVE 600===============================================
+        //==============================================LEAVE 600===============================================
+        //==============================================LEAVE 600===============================================
         public Packet ResponseLeave(Packet recvPacket)
         {
             Packet response;
@@ -246,7 +269,12 @@ namespace IrccServer
                 }
 
                 lock (lobbyClients)
-                    lobbyClients.Add(client.UserId, client);
+                {
+                    if (lobbyClients.ContainsKey(client.UserId))
+                        Console.WriteLine("ERROR: LEAVE - User already exists in lobby");
+                    else
+                        lobbyClients.Add(client.UserId, client);
+                }
 
                 if (roomEmpty)
                 {
@@ -265,6 +293,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //==============================================LIST 400===============================================
+        //==============================================LIST 400===============================================
+        //==============================================LIST 400===============================================
         public Packet ResponseList(Packet recvPacket)
         {
             Packet response;
@@ -326,6 +357,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //==============================================MLIST 420===============================================
+        //==============================================MLIST 420===============================================
+        //==============================================MLIST 420===============================================
         public Packet ResponseMlist(Packet recvPacket)
         {
             Packet response;
@@ -352,6 +386,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //================================================MSG 200===============================================
+        //================================================MSG 200===============================================
+        //================================================MSG 200===============================================
         public Packet ResponseMsg(Packet recvPacket, RedisHelper redis)
         {
             Packet response;
@@ -393,6 +430,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //===========================================SIGNIN 320===============================================
+        //===========================================SIGNIN 320===============================================
+        //===========================================SIGNIN 320===============================================
         public Packet ResponseSignin(Packet recvPacket, RedisHelper redis)
         {
             Packet response;
@@ -445,6 +485,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //=========================================SIGNIN_DUMMY 330===============================================
+        //=========================================SIGNIN_DUMMY 330===============================================
+        //=========================================SIGNIN_DUMMY 330===============================================
         public Packet ResponseSigninDummy(Packet recvPacket, RedisHelper redis)
         {
             Packet response;
@@ -466,6 +509,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //===========================================SIGNUP 310=================================================
+        //===========================================SIGNUP 310=================================================
+        //===========================================SIGNUP 310=================================================
         public Packet ResponseSignup(Packet recvPacket, RedisHelper redis)
         {
             Packet response;
@@ -505,6 +551,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //==============================================SJOIN 550===============================================
+        //==============================================SJOIN 550===============================================
+        //==============================================SJOIN 550===============================================
         public Packet ResponseSjoin(Packet recvPacket)
         {
             Packet response;
@@ -551,6 +600,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //===========================================SJOIN_RES 552===============================================
+        //===========================================SJOIN_RES 552===============================================
+        //===========================================SJOIN_RES 552===============================================
         public Packet ResponseSjoinRes(Packet recvPacket, out ClientHandle surrogateCandidate)
         {
             Packet response;
@@ -631,10 +683,13 @@ namespace IrccServer
                     returnData = null;
                 }
 
+                peerRespWait.Remove(client.UserId); //just remove client.user_id when first success is received
+                /*
                 respProgress[1]++; //increment progress
                 respProgress[2] = 1; //set join success to true
                 if (respProgress[0] == respProgress[1])
                     peerRespWait.Remove(client.UserId);
+                */
             }
 
             //room exists in other peer irc servers
@@ -644,6 +699,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //===========================================SJOIN_ERR 555===============================================
+        //===========================================SJOIN_ERR 555===============================================
+        //===========================================SJOIN_ERR 555===============================================
         public Packet ResponseSjoinErr(Packet recvPacket, out ClientHandle surrogateCandidate)
         {
             Packet response;
@@ -679,9 +737,13 @@ namespace IrccServer
                 int[] respProgress;
                 if (!peerRespWait.TryGetValue(client.UserId, out respProgress))
                 {
-                    Console.WriteLine("ERROR: SJOIN_RES - respProgress no longer exists");
+                    //respProgress no longer exists because success was sent and the key was deleted.
                     returnHeader = NoResponseHeader;
                     returnData = null;
+
+                    surrogateCandidate = client;
+                    response = new Packet(returnHeader, returnData);
+                    return response;
                 }
 
                 respProgress[1]++; //increment progress
@@ -703,6 +765,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //==============================================SLEAVE 650===============================================
+        //==============================================SLEAVE 650===============================================
+        //==============================================SLEAVE 650===============================================
         public Packet ResponseSleave(Packet recvPacket)
         {
             Packet response;
@@ -730,6 +795,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //==============================================SLIST 450===============================================
+        //==============================================SLIST 450===============================================
+        //==============================================SLIST 450===============================================
         public Packet ResponseSlist(Packet recvPacket)
         {
             Packet response;
@@ -773,6 +841,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //==============================================SLIST_RES 452===============================================
+        //==============================================SLIST_RES 452===============================================
+        //==============================================SLIST_RES 452===============================================
         public Packet ResponseSlistRes(Packet recvPacket, out ClientHandle surrogateCandidate)
         {
             Packet response;
@@ -798,6 +869,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //==============================================SMSG 250===============================================
+        //==============================================SMSG 250===============================================
+        //==============================================SMSG 250===============================================
         public Packet ResponseSmsg(Packet recvPacket)
         {
             Packet response;
@@ -832,6 +906,9 @@ namespace IrccServer
             response = new Packet(returnHeader, returnData);
             return response;
         }
+        //=============================================SWITCH CASE============================================
+        //=============================================SWITCH CASE============================================
+        //=============================================SWITCH CASE============================================
         public Packet GetResponse(out ClientHandle surrogateClient)
         {
             Packet responsePacket = new Packet();
